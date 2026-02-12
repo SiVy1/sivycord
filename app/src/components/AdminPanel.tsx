@@ -464,8 +464,13 @@ function UsersTab({ server }: { server: any }) {
 function ServerTab({ server }: { server: any }) {
   const [name, setName] = useState(server.config.serverName || "");
   const [description, setDescription] = useState("");
+  const [joinSoundUrl, setJoinSoundUrl] = useState<string | null>(null);
+  const [leaveSoundUrl, setLeaveSoundUrl] = useState<string | null>(null);
+  const [soundChance, setSoundChance] = useState<number>(100);
   const [stats, setStats] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState<"join" | "leave" | null>(null);
+  const updateServerConfig = useStore((s) => s.updateServerConfig);
 
   useEffect(() => {
     fetch(`http://${server.config.host}:${server.config.port}/api/server`)
@@ -473,6 +478,9 @@ function ServerTab({ server }: { server: any }) {
       .then((data) => {
         setName(data.name);
         setDescription(data.description);
+        setJoinSoundUrl(data.join_sound_url);
+        setLeaveSoundUrl(data.leave_sound_url);
+        setSoundChance(data.sound_chance ?? 100);
       })
       .catch(console.error);
 
@@ -489,15 +497,78 @@ function ServerTab({ server }: { server: any }) {
         `http://${server.config.host}:${server.config.port}/api/server`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, description }),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${server.config.authToken}`,
+          },
+          body: JSON.stringify({
+            name,
+            description,
+            join_sound_url: joinSoundUrl,
+            leave_sound_url: leaveSoundUrl,
+            sound_chance: soundChance,
+          }),
         },
       );
+
+      // Update global state immediately
+      if (server.id) {
+        updateServerConfig(server.id, {
+          serverName: name,
+          joinSoundUrl: joinSoundUrl,
+          leaveSoundUrl: leaveSoundUrl,
+          soundChance: soundChance,
+        });
+      }
+
       alert("Server settings updated!");
     } catch (err) {
       console.error(err);
     }
     setSaving(false);
+  };
+
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: "join" | "leave",
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(type);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(
+        `http://${server.config.host}:${server.config.port}/api/uploads`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${server.config.authToken}`,
+          },
+          body: formData,
+        },
+      );
+      const data = await res.json();
+      if (type === "join") setJoinSoundUrl(data.url);
+      else setLeaveSoundUrl(data.url);
+    } catch (err) {
+      console.error("Upload failed", err);
+      alert("Upload failed");
+    } finally {
+      setUploading(null);
+    }
+  };
+
+  const playPreview = (url: string | null) => {
+    if (!url) return;
+    const fullUrl = url.startsWith("http")
+      ? url
+      : `http://${server.config.host}:${server.config.port}${url}`;
+    const audio = new Audio(fullUrl);
+    audio.volume = 0.5;
+    audio.play().catch(console.error);
   };
 
   return (
@@ -534,9 +605,129 @@ function ServerTab({ server }: { server: any }) {
               className="w-full bg-bg-primary text-text-primary px-4 py-2 rounded-lg border border-border/50 focus:border-accent outline-none"
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">
+                Join Sound
+              </label>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={(e) => handleFileUpload(e, "join")}
+                  className="hidden"
+                  id="join-sound-upload"
+                />
+                <label
+                  htmlFor="join-sound-upload"
+                  className={`w-full py-2 px-3 bg-bg-primary border border-border/50 rounded-lg text-xs font-bold text-center cursor-pointer transition-colors ${
+                    uploading === "join"
+                      ? "opacity-50 cursor-not-allowed"
+                      : "hover:bg-bg-hover hover:border-accent/50"
+                  }`}
+                >
+                  {uploading === "join"
+                    ? "Uploading..."
+                    : "📁 Upload Join Sound"}
+                </label>
+                {joinSoundUrl && (
+                  <div className="flex items-center justify-between bg-bg-primary px-2 py-1 rounded-lg border border-border/30 overflow-hidden">
+                    <span className="text-[10px] text-success font-medium truncate max-w-[100px]">
+                      ✅ {joinSoundUrl.split("/").pop()}
+                    </span>
+                    <button
+                      onClick={() => playPreview(joinSoundUrl)}
+                      className="p-1 hover:bg-bg-hover rounded text-accent transition-colors flex-shrink-0"
+                      title="Play Preview"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">
+                Leave Sound
+              </label>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={(e) => handleFileUpload(e, "leave")}
+                  className="hidden"
+                  id="leave-sound-upload"
+                />
+                <label
+                  htmlFor="leave-sound-upload"
+                  className={`w-full py-2 px-3 bg-bg-primary border border-border/50 rounded-lg text-xs font-bold text-center cursor-pointer transition-colors ${
+                    uploading === "leave"
+                      ? "opacity-50 cursor-not-allowed"
+                      : "hover:bg-bg-hover hover:border-accent/50"
+                  }`}
+                >
+                  {uploading === "leave"
+                    ? "Uploading..."
+                    : "📁 Upload Leave Sound"}
+                </label>
+                {leaveSoundUrl && (
+                  <div className="flex items-center justify-between bg-bg-primary px-2 py-1 rounded-lg border border-border/30 overflow-hidden">
+                    <span className="text-[10px] text-success font-medium truncate max-w-[100px]">
+                      ✅ {leaveSoundUrl.split("/").pop()}
+                    </span>
+                    <button
+                      onClick={() => playPreview(leaveSoundUrl)}
+                      className="p-1 hover:bg-bg-hover rounded text-accent transition-colors flex-shrink-0"
+                      title="Play Preview"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-bg-primary/50 p-4 rounded-xl border border-border/30">
+            <div className="flex justify-between mb-2">
+              <label className="text-xs font-bold text-text-muted uppercase tracking-wider">
+                🎲 Sound Playback Chance
+              </label>
+              <span className="text-sm font-bold text-accent">
+                {soundChance}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              step="5"
+              value={soundChance}
+              onChange={(e) => setSoundChance(parseInt(e.target.value))}
+              className="w-full h-1.5 bg-bg-surface rounded-lg appearance-none cursor-pointer accent-accent"
+            />
+            <p className="text-[10px] text-text-muted mt-2">
+              Determines how often the custom sounds play. Set to 100% for every
+              time.
+            </p>
+          </div>
+
           <button
             onClick={handleUpdate}
-            disabled={saving}
+            disabled={saving || !!uploading}
             className="w-full py-2 bg-accent text-white rounded-lg font-bold hover:bg-accent/90 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Changes"}

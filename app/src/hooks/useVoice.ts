@@ -73,10 +73,48 @@ function playToggleSound(on: boolean) {
 
 // ─── Helper: play join/leave sound ───
 function playVoiceSound(type: "join" | "leave") {
-  const soundSettings = useStore.getState().soundSettings;
-  const soundKey = type === "join" ? "joinSound" : "leaveSound";
+  const state = useStore.getState();
+  const soundSettings = state.soundSettings;
+  const activeServerId = state.activeServerId;
+  const servers = state.servers;
+  const activeServer = servers.find((s) => s.id === activeServerId);
 
-  // Try custom sound first
+  const soundKey = type === "join" ? "joinSound" : "leaveSound";
+  const serverSoundKey = type === "join" ? "joinSoundUrl" : "leaveSoundUrl";
+
+  // 1. Try server-wide sound first (Admin configured)
+  const serverSoundUrl = activeServer?.config[serverSoundKey];
+  const soundChance = activeServer?.config.soundChance ?? 100;
+
+  if (serverSoundUrl) {
+    // Only play server-wide sound if chance roll is successful
+    if (Math.random() * 100 < soundChance) {
+      try {
+        // Ensure absolute URL if it's a relative path from the server
+        const fullUrl = serverSoundUrl.startsWith("http")
+          ? serverSoundUrl
+          : `http://${activeServer.config.host}:${activeServer.config.port}${serverSoundUrl}`;
+
+        const audio = new Audio(fullUrl);
+        audio.volume = 0.4;
+        audio.play().catch(() => {});
+        return;
+      } catch {
+        // Fall back
+      }
+    } else {
+      // Chance roll failed. We skip the server-wide sound.
+      // We still fall back to local settings/defaults though?
+      // User said "chciałbym że nie zawsze się to włączało", which usually implies
+      // they want the *feature* to be random. If chance fails, we should probably
+      // just not play ANY sound for this event, or fall back to default?
+      // Usually "chance" on a custom sound means "maybe it plays, maybe it doesn't".
+      // I'll skip playing anything if the chance roll for the server sound fails.
+      return;
+    }
+  }
+
+  // 2. Try local user preference
   if (soundSettings[soundKey]) {
     try {
       const audio = new Audio(soundSettings[soundKey] as string);
@@ -88,7 +126,7 @@ function playVoiceSound(type: "join" | "leave") {
     }
   }
 
-  // Default sound
+  // 3. Default generated sound
   try {
     const ctx = new AudioContext();
     const osc = ctx.createOscillator();
@@ -513,8 +551,13 @@ export function useVoice() {
               is_muted: false,
               is_deafened: false,
             });
-            if (data.user_id !== localUserId && data.channel_id === channelId)
-              createPeerConnection(data.user_id, channelId);
+            if (data.user_id !== localUserId) {
+              // Play join sound for others
+              playVoiceSound("join");
+              if (data.channel_id === channelId) {
+                createPeerConnection(data.user_id, channelId);
+              }
+            }
           } else if (data.type === "voice_peer_left") {
             // Remove from global store
             const current = useStore.getState().voiceMembers;
@@ -527,6 +570,11 @@ export function useVoice() {
                   ),
               ),
             );
+
+            if (data.user_id !== localUserId) {
+              // Play leave sound for others
+              playVoiceSound("leave");
+            }
 
             // If it was someone in our channel, cleanup peer connection
             if (data.channel_id === channelId) {

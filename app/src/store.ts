@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
   ServerEntry,
+  ServerConfig,
   Channel,
   Message,
   VoicePeer,
@@ -63,6 +64,7 @@ interface AppState {
   setTalking: (userId: string, talking: boolean) => void;
   updateVoiceSettings: (settings: Partial<AppState["voiceSettings"]>) => void;
   updateSoundSettings: (settings: Partial<AppState["soundSettings"]>) => void;
+  updateServerConfig: (serverId: string, config: Partial<ServerConfig>) => void;
   logout: () => void;
 }
 
@@ -174,6 +176,14 @@ export const useStore = create<AppState>()(
         set((s) => ({ voiceSettings: { ...s.voiceSettings, ...settings } })),
       updateSoundSettings: (settings) =>
         set((s) => ({ soundSettings: { ...s.soundSettings, ...settings } })),
+      updateServerConfig: (serverId, config) =>
+        set((s) => ({
+          servers: s.servers.map((srv) =>
+            srv.id === serverId
+              ? { ...srv, config: { ...srv.config, ...config } }
+              : srv,
+          ),
+        })),
       logout: () =>
         set((s) => {
           if (!s.activeServerId) return s;

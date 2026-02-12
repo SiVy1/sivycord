@@ -195,6 +195,9 @@ pub struct JoinResponse {
 pub struct ServerInfo {
     pub name: String,
     pub description: String,
+    pub join_sound_url: Option<String>,
+    pub leave_sound_url: Option<String>,
+    pub sound_chance: i64,
     pub channels: i64,
     pub online: usize,
 }
@@ -203,6 +206,9 @@ pub struct ServerInfo {
 pub struct UpdateServerRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub join_sound_url: Option<String>,
+    pub leave_sound_url: Option<String>,
+    pub sound_chance: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]

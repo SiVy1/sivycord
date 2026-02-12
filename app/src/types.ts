@@ -35,6 +35,9 @@ export interface ServerConfig {
   userId?: string;
   serverName?: string;
   authToken?: string;
+  joinSoundUrl?: string | null;
+  leaveSoundUrl?: string | null;
+  soundChance?: number;
 }
 
 export interface ServerEntry {
