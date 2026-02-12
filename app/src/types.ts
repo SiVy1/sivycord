@@ -56,6 +56,7 @@ export interface AuthUser {
 export interface VoicePeer {
   user_id: string;
   user_name: string;
+  channel_id: string;
   is_muted: boolean;
   is_deafened: boolean;
 }
@@ -105,7 +106,7 @@ export const PERMISSIONS = {
 
 export function hasPermission(
   userPerms: number,
-  requiredPerm: number
+  requiredPerm: number,
 ): boolean {
   // Administrator bypasses all checks
   if (userPerms & PERMISSIONS.ADMINISTRATOR) return true;
@@ -232,6 +233,10 @@ export type WsServerMessage =
       user_id: string;
       is_muted: boolean;
       is_deafened: boolean;
+    }
+  | {
+      type: "voice_state_sync";
+      voice_states: VoicePeer[];
     };
 
 // ─── Connection Token ───

@@ -401,6 +401,10 @@ pub enum WsServerMessage {
         is_muted: bool,
         is_deafened: bool,
     },
+    #[serde(rename = "voice_state_sync")]
+    VoiceStateSync {
+        voice_states: Vec<VoicePeer>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

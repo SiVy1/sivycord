@@ -41,7 +41,7 @@ function playToggleSound(on: boolean) {
   if (soundType && soundSettings[soundType as keyof typeof soundSettings]) {
     try {
       const audio = new Audio(
-        soundSettings[soundType as keyof typeof soundSettings] as string
+        soundSettings[soundType as keyof typeof soundSettings] as string,
       );
       audio.volume = 0.3;
       audio.play().catch(() => {});
@@ -130,7 +130,7 @@ function broadcastTalkingState(talking: boolean) {
         channel_id: channelId,
         user_id: localUserId,
         talking,
-      })
+      }),
     );
   }
   useStore.getState().setTalking(localUserId, talking);
@@ -192,7 +192,7 @@ function stopVAD() {
 // ─── Helper: create peer connection ───
 function createPeerConnection(
   remoteUserId: string,
-  channelId: string
+  channelId: string,
 ): RTCPeerConnection {
   let pc = peerConnections.get(remoteUserId);
   if (pc) return pc;
@@ -242,7 +242,7 @@ function createPeerConnection(
           target_user_id: remoteUserId,
           from_user_id: localUserId,
           candidate: JSON.stringify(event.candidate),
-        })
+        }),
       );
     }
   };
@@ -282,7 +282,7 @@ function createPeerConnection(
             target_user_id: remoteUserId,
             from_user_id: localUserId,
             sdp: JSON.stringify(pc!.localDescription),
-          })
+          }),
         );
       }
     } catch (err) {
@@ -480,7 +480,7 @@ export function useVoice() {
                 user_id: data.user_id,
                 user_name:
                   displayName || currentUser?.display_name || "Anonymous",
-              })
+              }),
             );
 
             // Play join sound
@@ -495,7 +495,12 @@ export function useVoice() {
             }
           } else if (data.type === "voice_members") {
             const members = Array.isArray(data.members) ? data.members : [];
-            setVoiceMembers(members);
+            const current = useStore.getState().voiceMembers;
+            const others = current.filter(
+              (m) => m.channel_id !== data.channel_id,
+            );
+            setVoiceMembers([...others, ...members]);
+
             members.forEach((m) => {
               if (m.user_id !== localUserId)
                 createPeerConnection(m.user_id, channelId);
@@ -504,25 +509,40 @@ export function useVoice() {
             addVoiceMember({
               user_id: data.user_id,
               user_name: data.user_name || "Unknown",
+              channel_id: data.channel_id,
               is_muted: false,
               is_deafened: false,
             });
-            if (data.user_id !== localUserId)
+            if (data.user_id !== localUserId && data.channel_id === channelId)
               createPeerConnection(data.user_id, channelId);
           } else if (data.type === "voice_peer_left") {
-            removeVoiceMember(data.user_id);
-            const pc = peerConnections.get(data.user_id);
-            if (pc) {
-              pc.close();
-              peerConnections.delete(data.user_id);
+            // Remove from global store
+            const current = useStore.getState().voiceMembers;
+            setVoiceMembers(
+              current.filter(
+                (m) =>
+                  !(
+                    m.user_id === data.user_id &&
+                    m.channel_id === data.channel_id
+                  ),
+              ),
+            );
+
+            // If it was someone in our channel, cleanup peer connection
+            if (data.channel_id === channelId) {
+              const pc = peerConnections.get(data.user_id);
+              if (pc) {
+                pc.close();
+                peerConnections.delete(data.user_id);
+              }
+              const audio = audioElements.get(data.user_id);
+              if (audio) {
+                audio.srcObject = null;
+                audio.remove();
+                audioElements.delete(data.user_id);
+              }
+              useStore.getState().removeScreenShare(data.user_id);
             }
-            const audio = audioElements.get(data.user_id);
-            if (audio) {
-              audio.srcObject = null;
-              audio.remove();
-              audioElements.delete(data.user_id);
-            }
-            useStore.getState().removeScreenShare(data.user_id);
           } else if (data.type === "voice_offer") {
             if (data.target_user_id !== localUserId) return;
             const pc =
@@ -553,7 +573,7 @@ export function useVoice() {
                   pc.signalingState !== "have-local-offer"
                 ) {
                   console.warn(
-                    `Cannot accept offer in state: ${pc.signalingState}`
+                    `Cannot accept offer in state: ${pc.signalingState}`,
                   );
                   return;
                 }
@@ -567,7 +587,7 @@ export function useVoice() {
                     target_user_id: data.from_user_id,
                     from_user_id: localUserId,
                     sdp: JSON.stringify(pc.localDescription),
-                  })
+                  }),
                 );
               }
             } catch (err) {
@@ -590,7 +610,7 @@ export function useVoice() {
             // Only accept answer if we're in the right state
             if (pc.signalingState !== "have-local-offer") {
               console.warn(
-                `Cannot accept answer in state: ${pc.signalingState}`
+                `Cannot accept answer in state: ${pc.signalingState}`,
               );
               return;
             }
@@ -629,7 +649,7 @@ export function useVoice() {
                     is_muted: data.is_muted,
                     is_deafened: data.is_deafened,
                   }
-                : m
+                : m,
             );
             setVoiceMembers(updated);
           }
@@ -653,7 +673,7 @@ export function useVoice() {
       addVoiceMember,
       removeVoiceMember,
       setTalking,
-    ]
+    ],
   );
   const stopScreenShareInternal = () => {
     displayStream?.getTracks().forEach((t) => t.stop());
@@ -709,7 +729,7 @@ export function useVoice() {
             type: "leave_voice",
             channel_id: currentChannelId,
             user_id: localUserId,
-          })
+          }),
         );
       } catch {
         // ignore
@@ -748,7 +768,7 @@ export function useVoice() {
           user_id: localUserId,
           is_muted: isMutedLocal,
           is_deafened: isDeafenedLocal,
-        })
+        }),
       );
     }
   }, []);
@@ -789,7 +809,7 @@ export function useVoice() {
           user_id: localUserId,
           is_muted: isMutedLocal,
           is_deafened: isDeafenedLocal,
-        })
+        }),
       );
     }
   }, []);

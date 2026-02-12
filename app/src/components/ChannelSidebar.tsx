@@ -26,7 +26,7 @@ export function ChannelSidebar() {
   const activeServer = servers.find((s) => s.id === activeServerId);
 
   const textChannels = channels.filter(
-    (c) => c.channel_type === "text" || !c.channel_type
+    (c) => c.channel_type === "text" || !c.channel_type,
   );
   const voiceChannels = channels.filter((c) => c.channel_type === "voice");
 
@@ -38,7 +38,7 @@ export function ChannelSidebar() {
       .then((data: Channel[]) => {
         setChannels(data);
         const textCh = data.filter(
-          (c) => c.channel_type === "text" || !c.channel_type
+          (c) => c.channel_type === "text" || !c.channel_type,
         );
         if (textCh.length > 0 && !activeChannelId) {
           setActiveChannel(textCh[0].id);
@@ -126,11 +126,8 @@ export function ChannelSidebar() {
             {voiceChannels.map((channel) => {
               const isConnected = voiceChannelId === channel.id;
               const voiceMembersInThisChannel = voiceMembers.filter(
-                (m) => isConnected || m.user_id === "external-user-logic-needed"
+                (m) => m.channel_id === channel.id,
               );
-              // Note: Currently we only show members in the channel the user is CONNECTED to.
-              // If the server supports seeing members in other channels, we'd filter by channel_id.
-              // For now, let's just use the connected ones as per existing logic.
               return (
                 <div key={channel.id}>
                   <button
@@ -207,6 +204,13 @@ export function ChannelSidebar() {
                               {m.user_name}
                             </span>
                             <div className="flex items-center gap-1 shrink-0 px-0.5">
+                              {useStore
+                                .getState()
+                                .screenShares.has(m.user_id) && (
+                                <span className="text-[8px] font-bold bg-accent text-white px-1 rounded-[4px] leading-3 shadow-[0_0_8px_rgba(59,130,246,0.3)]">
+                                  LIVE
+                                </span>
+                              )}
                               {m.is_deafened ? (
                                 <svg
                                   className="w-3.5 h-3.5 text-danger opacity-80"
@@ -352,7 +356,7 @@ function CreateChannelModal({
             description: "",
             channel_type: type,
           }),
-        }
+        },
       );
 
       if (!res.ok) throw new Error("Failed to create channel");

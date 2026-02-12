@@ -23,6 +23,7 @@ export function ChatArea() {
   const voiceMembers = useStore((s) => s.voiceMembers);
 
   const [input, setInput] = useState("");
+  const [showStreams, setShowStreams] = useState(true);
   const [wsStatus, setWsStatus] = useState<
     "connecting" | "connected" | "disconnected"
   >("disconnected");
@@ -55,7 +56,7 @@ export function ChatArea() {
     const controller = new AbortController();
     fetch(
       `http://${host}:${port}/api/channels/${activeChannelId}/messages?limit=50`,
-      { signal: controller.signal }
+      { signal: controller.signal },
     )
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -134,6 +135,32 @@ export function ChatArea() {
             content: data.content || "",
             createdAt: data.created_at || "",
           });
+        } else if (data.type === "voice_state_sync") {
+          useStore.getState().setVoiceMembers(data.voice_states);
+        } else if (data.type === "voice_peer_joined") {
+          useStore.getState().addVoiceMember({
+            user_id: data.user_id,
+            user_name: data.user_name,
+            channel_id: data.channel_id,
+            is_muted: false,
+            is_deafened: false,
+          });
+        } else if (data.type === "voice_peer_left") {
+          useStore.getState().removeVoiceMember(data.user_id);
+        } else if (data.type === "voice_status_update") {
+          const currentMembers = useStore.getState().voiceMembers;
+          const updated = currentMembers.map((m) =>
+            m.user_id === data.user_id && m.channel_id === data.channel_id
+              ? {
+                  ...m,
+                  is_muted: data.is_muted,
+                  is_deafened: data.is_deafened,
+                }
+              : m,
+          );
+          useStore.getState().setVoiceMembers(updated);
+        } else if (data.type === "voice_talking") {
+          useStore.getState().setTalking(data.user_id, data.talking);
         }
       } catch (err) {
         console.error("Failed to parse WS message:", err);
@@ -176,11 +203,11 @@ export function ChatArea() {
         JSON.stringify({
           type: "leave_channel",
           channel_id: prevChannelRef.current,
-        })
+        }),
       );
     }
     ws.send(
-      JSON.stringify({ type: "join_channel", channel_id: activeChannelId })
+      JSON.stringify({ type: "join_channel", channel_id: activeChannelId }),
     );
     prevChannelRef.current = activeChannelId;
   }, [activeChannelId]);
@@ -238,7 +265,7 @@ export function ChatArea() {
         setUploading(false);
       }
     },
-    [activeServer, activeChannelId, displayName, isAuthenticated]
+    [activeServer, activeChannelId, displayName, isAuthenticated],
   );
 
   const handleDrop = useCallback(
@@ -248,7 +275,7 @@ export function ChatArea() {
       const file = e.dataTransfer.files[0];
       if (file) uploadFile(file);
     },
-    [uploadFile]
+    [uploadFile],
   );
 
   const handleSend = useCallback(() => {
@@ -322,16 +349,16 @@ export function ChatArea() {
                 wsStatus === "connected"
                   ? "bg-success shadow-[0_0_8px_rgba(16,185,129,0.5)]"
                   : wsStatus === "connecting"
-                  ? "bg-yellow-400 animate-pulse"
-                  : "bg-danger shadow-[0_0_8px_rgba(239,68,68,0.5)]"
+                    ? "bg-yellow-400 animate-pulse"
+                    : "bg-danger shadow-[0_0_8px_rgba(239,68,68,0.5)]"
               }`}
             />
             <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
               {wsStatus === "connected"
                 ? "Online"
                 : wsStatus === "connecting"
-                ? "Connecting"
-                : "Offline"}
+                  ? "Connecting"
+                  : "Offline"}
             </span>
           </div>
           {!isAuthenticated && (
@@ -349,21 +376,54 @@ export function ChatArea() {
         </div>
       )}
 
+      {/* Stream Grid Area */}
+      {screenShares.size > 0 && (
+        <div className="border-b border-border/50 bg-bg-secondary/30">
+          <div className="flex items-center justify-between px-4 py-2">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-accent shadow-[0_0_8px_rgba(59,130,246,0.5)] animate-pulse" />
+              <span className="text-[10px] font-bold text-text-primary uppercase tracking-widest">
+                Active Streams ({screenShares.size})
+              </span>
+            </div>
+            <button
+              onClick={() => setShowStreams(!showStreams)}
+              className="text-[10px] font-bold text-text-muted hover:text-text-primary uppercase tracking-wider transition-colors cursor-pointer"
+            >
+              {showStreams ? "Collapse" : "Expand"}
+            </button>
+          </div>
+
+          {showStreams && (
+            <div className="px-4 pb-4">
+              <div
+                className={`grid gap-4 ${
+                  screenShares.size === 1
+                    ? "grid-cols-1"
+                    : screenShares.size === 2
+                      ? "grid-cols-2"
+                      : "grid-cols-3"
+                }`}
+              >
+                {Array.from(screenShares.entries()).map(([uid, stream]) => {
+                  const m = voiceMembers.find((v) => v.user_id === uid);
+                  return (
+                    <ScreenShareView
+                      key={uid}
+                      stream={stream}
+                      userName={m?.user_name || "Unknown"}
+                      onClose={() => removeScreenShare(uid)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
-        {/* Remote Screen Shares */}
-        {Array.from(screenShares.entries()).map(([uid, stream]) => {
-          const m = voiceMembers.find((v) => v.user_id === uid);
-          return (
-            <ScreenShareView
-              key={uid}
-              stream={stream}
-              userName={m?.user_name || "Unknown"}
-              onClose={() => removeScreenShare(uid)}
-            />
-          );
-        })}
-
         {messages.length === 0 && (
           <div className="text-center py-12">
             <p className="text-text-muted text-sm">
@@ -469,8 +529,8 @@ export function ChatArea() {
               !isAuthenticated
                 ? "Log in to send messages"
                 : wsStatus !== "connected"
-                ? "Reconnecting..."
-                : `Message #${activeChannel?.name || "channel"}`
+                  ? "Reconnecting..."
+                  : `Message #${activeChannel?.name || "channel"}`
             }
             disabled={wsStatus !== "connected" || !isAuthenticated}
             rows={1}

@@ -59,6 +59,21 @@ async fn handle_socket(
     // Send identity to client
     let _ = client_tx.send(WsServerMessage::Identity { user_id: user_id.clone() }).await;
 
+    // Send initial voice state sync
+    let voice_states = state.get_all_voice_members();
+    let _ = client_tx.send(WsServerMessage::VoiceStateSync { voice_states }).await;
+
+    // Subscribe to global broadcasts (voice presence, etc.)
+    let mut global_rx = state.global_tx.subscribe();
+    let global_client_tx = client_tx.clone();
+    tokio::spawn(async move {
+        while let Ok(msg) = global_rx.recv().await {
+            if global_client_tx.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
     let send_task = tokio::spawn(async move {
         while let Some(msg) = client_rx.recv().await {
             match serde_json::to_string(&msg) {
@@ -249,6 +264,13 @@ async fn handle_socket(
 
                         let tx = state.get_channel_tx(&channel_id);
                         let _ = tx.send(WsServerMessage::VoicePeerJoined {
+                            channel_id: channel_id.clone(),
+                            user_id: user_id.clone(),
+                            user_name: user_name.clone(),
+                        });
+
+                        // Global broadcast
+                        let _ = state.global_tx.send(WsServerMessage::VoicePeerJoined {
                             channel_id,
                             user_id: user_id.clone(),
                             user_name: user_name.clone(),
@@ -258,6 +280,12 @@ async fn handle_socket(
                         state.leave_voice(&channel_id, &user_id);
                         let tx = state.get_channel_tx(&channel_id);
                         let _ = tx.send(WsServerMessage::VoicePeerLeft {
+                            channel_id: channel_id.clone(),
+                            user_id: user_id.clone(),
+                        });
+
+                        // Global broadcast
+                        let _ = state.global_tx.send(WsServerMessage::VoicePeerLeft {
                             channel_id,
                             user_id: user_id.clone(),
                         });
@@ -304,6 +332,14 @@ async fn handle_socket(
                         state.update_voice_status(&channel_id, &user_id, is_muted, is_deafened);
                         let tx = state.get_channel_tx(&channel_id);
                         let _ = tx.send(WsServerMessage::VoiceStatusUpdate {
+                            channel_id: channel_id.clone(),
+                            user_id: user_id.clone(),
+                            is_muted,
+                            is_deafened,
+                        });
+
+                        // Global broadcast
+                        let _ = state.global_tx.send(WsServerMessage::VoiceStatusUpdate {
                             channel_id,
                             user_id: user_id.clone(),
                             is_muted,
@@ -330,7 +366,10 @@ async fn handle_socket(
         let left = state.leave_all_voice(&user_id);
         for (channel_id, uid) in left {
             let tx = state.get_channel_tx(&channel_id);
-            let _ = tx.send(WsServerMessage::VoicePeerLeft { channel_id, user_id: uid });
+            let _ = tx.send(WsServerMessage::VoicePeerLeft { channel_id: channel_id.clone(), user_id: uid.clone() });
+
+            // Global broadcast
+            let _ = state.global_tx.send(WsServerMessage::VoicePeerLeft { channel_id, user_id: uid });
         }
     }
 

@@ -26,7 +26,7 @@ interface AppState {
   updateServerAuth: (
     serverId: string,
     authToken: string,
-    userId: string
+    userId: string,
   ) => void;
 
   // Channels (per active server)
@@ -103,7 +103,7 @@ export const useStore = create<AppState>()(
           servers: s.servers.map((srv) =>
             srv.id === serverId
               ? { ...srv, config: { ...srv.config, authToken, userId } }
-              : srv
+              : srv,
           ),
         })),
 
@@ -128,7 +128,10 @@ export const useStore = create<AppState>()(
       setVoiceMembers: (members) => set({ voiceMembers: members }),
       addVoiceMember: (peer) =>
         set((s) => ({
-          voiceMembers: s.voiceMembers.some((m) => m.user_id === peer.user_id)
+          voiceMembers: s.voiceMembers.some(
+            (m) =>
+              m.user_id === peer.user_id && m.channel_id === peer.channel_id,
+          )
             ? s.voiceMembers
             : [...s.voiceMembers, peer],
         })),
@@ -136,7 +139,7 @@ export const useStore = create<AppState>()(
         set((s) => ({
           voiceMembers: s.voiceMembers.filter((m) => m.user_id !== userId),
           screenShares: new Map(
-            [...s.screenShares].filter(([uid]) => uid !== userId)
+            [...s.screenShares].filter(([uid]) => uid !== userId),
           ),
         })),
       addScreenShare: (userId, stream) =>
@@ -146,7 +149,7 @@ export const useStore = create<AppState>()(
       removeScreenShare: (userId) =>
         set((s) => ({
           screenShares: new Map(
-            [...s.screenShares].filter(([uid]) => uid !== userId)
+            [...s.screenShares].filter(([uid]) => uid !== userId),
           ),
         })),
       talkingUsers: new Set(),
@@ -185,7 +188,7 @@ export const useStore = create<AppState>()(
                       userId: undefined,
                     },
                   }
-                : srv
+                : srv,
             ),
             currentUser: null,
           };
@@ -200,6 +203,6 @@ export const useStore = create<AppState>()(
         voiceSettings: state.voiceSettings,
         soundSettings: state.soundSettings,
       }),
-    }
-  )
+    },
+  ),
 );
