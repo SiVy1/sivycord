@@ -8,9 +8,9 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ onClose }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<"roles" | "users" | "server">(
-    "roles",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "roles" | "users" | "server" | "audit" | "invites"
+  >("roles");
   const servers = useStore((s) => s.servers);
   const activeServerId = useStore((s) => s.activeServerId);
   const currentUser = useStore((s) => s.currentUser);
@@ -142,6 +142,26 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           >
             ⚙️ Server
           </button>
+          <button
+            onClick={() => setActiveTab("invites")}
+            className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+              activeTab === "invites"
+                ? "bg-bg-surface text-accent border-b-2 border-accent"
+                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
+            }`}
+          >
+            ✉️ Invites
+          </button>
+          <button
+            onClick={() => setActiveTab("audit")}
+            className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+              activeTab === "audit"
+                ? "bg-bg-surface text-accent border-b-2 border-accent"
+                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
+            }`}
+          >
+            📜 Audit Logs
+          </button>
         </div>
 
         {/* Content */}
@@ -149,6 +169,8 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           {activeTab === "roles" && <RolesTab server={activeServer} />}
           {activeTab === "users" && <UsersTab server={activeServer} />}
           {activeTab === "server" && <ServerTab server={activeServer} />}
+          {activeTab === "invites" && <InvitesTab server={activeServer} />}
+          {activeTab === "audit" && <AuditLogsTab server={activeServer} />}
         </div>
       </div>
     </div>
@@ -275,44 +297,70 @@ function UsersTab({ server }: { server: any }) {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Fetch roles
-        const rolesRes = await fetch(
-          `http://${server.config.host}:${server.config.port}/api/roles`,
-        );
-        const rolesData = await rolesRes.json();
-        setRoles(rolesData);
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const rolesRes = await fetch(
+        `http://${server.config.host}:${server.config.port}/api/roles`,
+      );
+      const rolesData = await rolesRes.json();
+      setRoles(rolesData);
 
-        // Get members from server.members (if available)
-        if (server.members) {
-          setUsers(server.members);
-
-          // Fetch roles for each user
-          const roleMap = new Map<string, Role[]>();
-          for (const user of server.members) {
-            try {
-              const userRolesRes = await fetch(
-                `http://${server.config.host}:${server.config.port}/api/users/${user.id}/roles`,
-              );
-              const userRolesData = await userRolesRes.json();
-              roleMap.set(user.id, userRolesData);
-            } catch {
-              roleMap.set(user.id, []);
-            }
+      if (server.members) {
+        setUsers(server.members);
+        const roleMap = new Map<string, Role[]>();
+        for (const user of server.members) {
+          try {
+            const userRolesRes = await fetch(
+              `http://${server.config.host}:${server.config.port}/api/users/${user.id}/roles`,
+            );
+            roleMap.set(user.id, await userRolesRes.json());
+          } catch {
+            roleMap.set(user.id, []);
           }
-          setUserRoles(roleMap);
         }
-      } catch (err) {
-        console.error("Failed to fetch users:", err);
+        setUserRoles(roleMap);
       }
-      setLoading(false);
-    };
+    } catch (err) {
+      console.error("Failed to fetch users:", err);
+    }
+    setLoading(false);
+  };
 
+  useEffect(() => {
     fetchData();
   }, [server]);
+
+  const handleKick = async (id: string) => {
+    if (!confirm("Are you sure you want to kick this user?")) return;
+    try {
+      await fetch(
+        `http://${server.config.host}:${server.config.port}/api/members/${id}/kick`,
+        { method: "POST" },
+      );
+      alert("User kicked!");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleBan = async (id: string) => {
+    const reason = prompt("Reason for ban?");
+    if (reason === null) return;
+    try {
+      await fetch(
+        `http://${server.config.host}:${server.config.port}/api/members/${id}/ban`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason }),
+        },
+      );
+      alert("User banned!");
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   if (loading) {
     return (
@@ -374,7 +422,19 @@ function UsersTab({ server }: { server: any }) {
                   onClick={() => setSelectedUser(user.id)}
                   className="px-3 py-1 text-sm bg-bg-primary text-text-secondary hover:text-accent rounded-lg transition-colors"
                 >
-                  Manage
+                  Roles
+                </button>
+                <button
+                  onClick={() => handleKick(user.id)}
+                  className="px-3 py-1 text-sm bg-danger/10 text-danger hover:bg-danger hover:text-white rounded-lg transition-colors"
+                >
+                  Kick
+                </button>
+                <button
+                  onClick={() => handleBan(user.id)}
+                  className="px-3 py-1 text-sm bg-danger text-white hover:bg-danger/90 rounded-lg transition-colors"
+                >
+                  Ban
                 </button>
               </div>
             </div>
@@ -391,8 +451,8 @@ function UsersTab({ server }: { server: any }) {
           currentRoles={userRoles.get(selectedUser) || []}
           onClose={() => setSelectedUser(null)}
           onUpdated={() => {
-            // Refresh
             setSelectedUser(null);
+            fetchData();
           }}
         />
       )}
@@ -402,6 +462,44 @@ function UsersTab({ server }: { server: any }) {
 
 // ─── Server Tab ───
 function ServerTab({ server }: { server: any }) {
+  const [name, setName] = useState(server.config.serverName || "");
+  const [description, setDescription] = useState("");
+  const [stats, setStats] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`http://${server.config.host}:${server.config.port}/api/server`)
+      .then((res) => res.json())
+      .then((data) => {
+        setName(data.name);
+        setDescription(data.description);
+      })
+      .catch(console.error);
+
+    fetch(`http://${server.config.host}:${server.config.port}/api/stats`)
+      .then((res) => res.json())
+      .then(setStats)
+      .catch(console.error);
+  }, [server]);
+
+  const handleUpdate = async () => {
+    setSaving(true);
+    try {
+      await fetch(
+        `http://${server.config.host}:${server.config.port}/api/server`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, description }),
+        },
+      );
+      alert("Server settings updated!");
+    } catch (err) {
+      console.error(err);
+    }
+    setSaving(false);
+  };
+
   return (
     <div className="space-y-6">
       <div className="mb-6">
@@ -411,15 +509,78 @@ function ServerTab({ server }: { server: any }) {
         </p>
       </div>
 
-      <div className="bg-bg-surface rounded-xl p-6">
-        <h4 className="font-bold text-text-primary mb-4">Server Information</h4>
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-text-muted">Server Name:</span>
-            <span className="text-text-primary font-mono">
-              {server.config.serverName || "Unnamed Server"}
-            </span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Settings Form */}
+        <div className="bg-bg-surface rounded-xl p-6 space-y-4">
+          <h4 className="font-bold text-text-primary">Server Information</h4>
+          <div>
+            <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">
+              Server Name
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full bg-bg-primary text-text-primary px-4 py-2 rounded-lg border border-border/50 focus:border-accent outline-none"
+            />
           </div>
+          <div>
+            <label className="block text-xs font-bold text-text-muted uppercase tracking-wider mb-2">
+              Description
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full bg-bg-primary text-text-primary px-4 py-2 rounded-lg border border-border/50 focus:border-accent outline-none"
+            />
+          </div>
+          <button
+            onClick={handleUpdate}
+            disabled={saving}
+            className="w-full py-2 bg-accent text-white rounded-lg font-bold hover:bg-accent/90 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+
+        {/* Statistics */}
+        <div className="bg-bg-surface rounded-xl p-6">
+          <h4 className="font-bold text-text-primary mb-4">
+            Server Statistics
+          </h4>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-bg-primary p-3 rounded-lg text-center">
+              <div className="text-2xl font-bold text-accent">
+                {stats?.total_users || 0}
+              </div>
+              <div className="text-xs text-text-muted">Users</div>
+            </div>
+            <div className="bg-bg-primary p-3 rounded-lg text-center">
+              <div className="text-2xl font-bold text-success">
+                {stats?.total_messages || 0}
+              </div>
+              <div className="text-xs text-text-muted">Messages</div>
+            </div>
+            <div className="bg-bg-primary p-3 rounded-lg text-center">
+              <div className="text-2xl font-bold text-warning">
+                {stats?.total_channels || 0}
+              </div>
+              <div className="text-xs text-text-muted">Channels</div>
+            </div>
+            <div className="bg-bg-primary p-3 rounded-lg text-center">
+              <div className="text-2xl font-bold text-danger">
+                {stats?.total_roles || 0}
+              </div>
+              <div className="text-xs text-text-muted">Roles</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Advanced Connection Info */}
+      <div className="bg-bg-surface rounded-xl p-6">
+        <h4 className="font-bold text-text-primary mb-4">Connection Details</h4>
+        <div className="space-y-3 text-sm">
           <div className="flex justify-between">
             <span className="text-text-muted">Host:</span>
             <span className="text-text-primary font-mono">
@@ -427,26 +588,156 @@ function ServerTab({ server }: { server: any }) {
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-text-muted">Invite Code:</span>
-            <span className="text-text-primary font-mono">
+            <span className="text-text-muted">Direct Invite:</span>
+            <span className="text-text-primary font-mono text-xs truncate max-w-[300px]">
               {server.config.inviteCode}
             </span>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <div className="bg-bg-surface rounded-xl p-6">
-        <h4 className="font-bold text-text-primary mb-4">Coming Soon</h4>
+// ─── Invites Tab ───
+function InvitesTab({ server }: { server: any }) {
+  const [invites, setInvites] = useState<any[]>([]);
+
+  const fetchInvites = async () => {
+    try {
+      const res = await fetch(
+        `http://${server.config.host}:${server.config.port}/api/invites`,
+      );
+      setInvites(await res.json());
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const deleteInvite = async (code: string) => {
+    if (!confirm("Are you sure you want to revoke this invite?")) return;
+    try {
+      await fetch(
+        `http://${server.config.host}:${server.config.port}/api/invites/${code}`,
+        { method: "DELETE" },
+      );
+      fetchInvites();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    fetchInvites();
+  }, [server]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h3 className="text-lg font-bold text-text-primary">
+            Active Invites
+          </h3>
+          <p className="text-sm text-text-muted">Manage server access links</p>
+        </div>
+      </div>
+
+      <div className="bg-bg-surface rounded-2xl overflow-hidden">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-bg-primary text-text-muted uppercase text-xs font-bold">
+            <tr>
+              <th className="px-6 py-4">Code</th>
+              <th className="px-6 py-4">Uses</th>
+              <th className="px-6 py-4">Max Uses</th>
+              <th className="px-6 py-4">Created</th>
+              <th className="px-6 py-4">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/30">
+            {invites.map((invite) => (
+              <tr
+                key={invite.code}
+                className="hover:bg-bg-hover transition-colors"
+              >
+                <td className="px-6 py-4 font-mono text-accent">
+                  {invite.code}
+                </td>
+                <td className="px-6 py-4 font-bold">{invite.uses}</td>
+                <td className="px-6 py-4 text-text-muted">
+                  {invite.max_uses || "∞"}
+                </td>
+                <td className="px-6 py-4 text-text-muted">
+                  {new Date(invite.created_at).toLocaleDateString()}
+                </td>
+                <td className="px-6 py-4">
+                  <button
+                    onClick={() => deleteInvite(invite.code)}
+                    className="text-danger hover:underline"
+                  >
+                    Revoke
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Audit Logs Tab ───
+function AuditLogsTab({ server }: { server: any }) {
+  const [logs, setLogs] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetch(`http://${server.config.host}:${server.config.port}/api/audit-logs`)
+      .then((res) => res.json())
+      .then(setLogs);
+  }, [server]);
+
+  return (
+    <div className="space-y-4">
+      <div className="mb-6">
+        <h3 className="text-lg font-bold text-text-primary">Audit Logs</h3>
         <p className="text-sm text-text-muted">
-          More server management features will be available here, including:
+          Security and management history
         </p>
-        <ul className="mt-3 space-y-2 text-sm text-text-muted">
-          <li>• Server name and description editing</li>
-          <li>• Audit log viewer</li>
-          <li>• Ban/kick management</li>
-          <li>• Invite link management</li>
-          <li>• Server statistics</li>
-        </ul>
+      </div>
+
+      <div className="space-y-2">
+        {logs.map((log) => (
+          <div
+            key={log.id}
+            className="bg-bg-surface p-4 rounded-xl border border-border/30"
+          >
+            <div className="flex justify-between items-start">
+              <div>
+                <span className="font-bold text-accent">{log.user_name}</span>
+                <span className="mx-2 text-text-muted">actioned</span>
+                <span className="font-bold text-text-primary">
+                  {log.action.replace("_", " ")}
+                </span>
+                {log.target_name && (
+                  <>
+                    <span className="mx-2 text-text-muted">on</span>
+                    <span className="text-text-primary italic">
+                      "{log.target_name}"
+                    </span>
+                  </>
+                )}
+              </div>
+              <span className="text-xs text-text-muted">
+                {new Date(log.created_at).toLocaleString()}
+              </span>
+            </div>
+            {log.details && (
+              <p className="mt-2 text-xs text-text-muted bg-bg-primary p-2 rounded font-mono">
+                {log.details}
+              </p>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

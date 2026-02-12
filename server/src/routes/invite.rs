@@ -1,10 +1,10 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::{State, Path}, Json, response::IntoResponse, http::StatusCode};
 use serde::Deserialize;
 use uuid::Uuid;
-
-use crate::models::{CreateInviteRequest, InviteResponse, JoinRequest, JoinResponse};
+use crate::models::{CreateInviteRequest, InviteResponse, JoinRequest, JoinResponse, InviteCode};
 use crate::state::AppState;
 use crate::token;
+use crate::routes::audit_logs::create_audit_log;
 
 pub async fn create_invite(
     State(state): State<AppState>,
@@ -17,7 +17,10 @@ pub async fn create_invite(
         .bind(req.max_uses)
         .execute(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            tracing::error!("Failed to insert invite: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let conn_token = crate::models::ConnectionToken {
         host: "localhost".to_string(),
@@ -45,7 +48,10 @@ pub async fn join_server(
     .bind(&req.invite_code)
     .fetch_optional(&state.db)
     .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|e| {
+        tracing::error!("Failed to fetch invite: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let invite = invite.ok_or(StatusCode::NOT_FOUND)?;
 
@@ -59,7 +65,10 @@ pub async fn join_server(
         .bind(&req.invite_code)
         .execute(&state.db)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            tracing::error!("Failed to update invite uses: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let user_id = Uuid::new_v4().to_string();
 
@@ -84,4 +93,35 @@ pub async fn join_direct(
         server_name: "SiVyCord Server".to_string(),
     })
 }
+pub async fn list_invites(State(state): State<AppState>) -> Json<Vec<crate::models::InviteCode>> {
+    let invites: Vec<crate::models::InviteCode> =
+        sqlx::query_as("SELECT * FROM invite_codes ORDER BY created_at DESC")
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
 
+    Json(invites)
+}
+
+pub async fn delete_invite(
+    State(state): State<AppState>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    sqlx::query("DELETE FROM invite_codes WHERE code = ?")
+        .bind(&code)
+        .execute(&state.db)
+        .await
+        .ok();
+
+    create_audit_log(
+        &state.db,
+        "Admin",
+        "Administrator",
+        "DELETE_INVITE",
+        None,
+        Some(&code),
+        None,
+    ).await;
+
+    StatusCode::OK
+}

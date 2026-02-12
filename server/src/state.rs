@@ -17,17 +17,21 @@ pub struct AppState {
     pub online: Arc<AtomicUsize>,
     /// Voice channel members: channel_id -> Vec<VoicePeer>
     pub voice_members: Arc<DashMap<String, Vec<VoicePeer>>>,
+    /// Server-wide broadcast channel (for global presence)
+    pub global_tx: broadcast::Sender<WsServerMessage>,
     /// JWT signing secret
     pub jwt_secret: String,
 }
 
 impl AppState {
     pub fn new(db: SqlitePool, jwt_secret: String) -> Self {
+        let (global_tx, _) = broadcast::channel(1024);
         Self {
             db,
             channels: Arc::new(DashMap::new()),
             online: Arc::new(AtomicUsize::new(0)),
             voice_members: Arc::new(DashMap::new()),
+            global_tx,
             jwt_secret,
         }
     }
@@ -71,6 +75,7 @@ impl AppState {
         members.push(VoicePeer {
             user_id: user_id.to_string(),
             user_name: user_name.to_string(),
+            channel_id: channel_id.to_string(),
             is_muted,
             is_deafened,
         });
@@ -116,5 +121,13 @@ impl AppState {
             .get(channel_id)
             .map(|m| m.clone())
             .unwrap_or_default()
+    }
+
+    pub fn get_all_voice_members(&self) -> Vec<VoicePeer> {
+        let mut all = vec![];
+        for entry in self.voice_members.iter() {
+            all.extend(entry.value().clone());
+        }
+        all
     }
 }

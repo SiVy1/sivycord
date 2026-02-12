@@ -191,11 +191,53 @@ pub struct JoinResponse {
     pub server_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct ServerInfo {
     pub name: String,
-    pub channels: usize,
+    pub description: String,
+    pub channels: i64,
     pub online: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateServerRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct AuditLog {
+    pub id: String,
+    pub user_id: String,
+    pub user_name: String,
+    pub action: String,
+    pub target_id: Option<String>,
+    pub target_name: Option<String>,
+    pub details: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Ban {
+    pub user_id: String,
+    pub user_name: String,
+    pub reason: Option<String>,
+    pub banned_by: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BanRequest {
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ServerStats {
+    pub total_users: i64,
+    pub total_messages: i64,
+    pub total_channels: i64,
+    pub total_roles: i64,
+    pub total_invites: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -365,6 +407,7 @@ pub enum WsServerMessage {
 pub struct VoicePeer {
     pub user_id: String,
     pub user_name: String,
+    pub channel_id: String,
     pub is_muted: bool,
     pub is_deafened: bool,
 }

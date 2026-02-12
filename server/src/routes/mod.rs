@@ -6,3 +6,6 @@ pub mod messages;
 pub mod roles;
 pub mod server_info;
 pub mod uploads;
+pub mod audit_logs;
+pub mod members;
+pub mod stats;

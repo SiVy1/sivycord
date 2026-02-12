@@ -95,7 +95,19 @@ async fn main() {
         )        .route("/api/invites", post(routes::invite::create_invite))
         .route("/api/join", post(routes::invite::join_server))
         .route("/api/join-direct", post(routes::invite::join_direct))
-        .route("/api/server", get(routes::server_info::get_server_info))        // Roles
+        .route("/api/server", get(routes::server_info::get_server_info))
+        .route("/api/server", put(routes::server_info::update_server_info))
+        // Admin
+        .route("/api/audit-logs", get(routes::audit_logs::list_audit_logs))
+        .route("/api/stats", get(routes::stats::get_server_stats))
+        .route("/api/invites", get(routes::invite::list_invites))
+        .route("/api/invites/{code}", delete(routes::invite::delete_invite))
+        // Members / Bans
+        .route("/api/bans", get(routes::members::list_bans))
+        .route("/api/members/{user_id}/kick", post(routes::members::kick_member))
+        .route("/api/members/{user_id}/ban", post(routes::members::ban_member))
+        .route("/api/members/{user_id}/ban", delete(routes::members::unban_member))
+        // Roles
         .route("/api/roles", get(routes::roles::list_roles))
         .route("/api/roles", post(routes::roles::create_role))
         .route("/api/roles/{role_id}", put(routes::roles::update_role))
