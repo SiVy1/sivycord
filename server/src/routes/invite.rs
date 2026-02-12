@@ -23,8 +23,8 @@ pub async fn create_invite(
         })?;
 
     let conn_token = crate::models::ConnectionToken {
-        host: "localhost".to_string(),
-        port: 3000,
+        host: state.external_host.clone(),
+        port: state.external_port,
         invite_code: code.clone(),
     };
     let encoded = token::encode_token(&conn_token);

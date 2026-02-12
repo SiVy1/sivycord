@@ -21,6 +21,8 @@ pub struct AppState {
     pub global_tx: broadcast::Sender<WsServerMessage>,
     /// JWT signing secret
     pub jwt_secret: String,
+    pub external_host: String,
+    pub external_port: u16,
 }
 
 impl AppState {

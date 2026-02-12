@@ -25,6 +25,14 @@ struct Args {
     #[arg(short, long, env = "DATABASE_PATH", default_value = "sivycord.db")]
     db_path: String,
 
+    /// External host for invite tokens (e.g. your domain)
+    #[arg(long, env = "EXTERNAL_HOST", default_value = "localhost")]
+    external_host: String,
+
+    /// External port for invite tokens (e.g. 443 for HTTPS)
+    #[arg(long, env = "EXTERNAL_PORT")]
+    external_port: Option<u16>,
+
     /// Admin nickname for first run
     #[arg(long, env = "ADMIN_NICK")]
     admin_nick: Option<String>,
@@ -139,7 +147,6 @@ async fn main() {
         }
     }
 
-    // Auto-generate an invite code on startup
     let invite_code = token::generate_invite_code();
     sqlx::query("INSERT OR IGNORE INTO invite_codes (code, max_uses) VALUES (?, NULL)")
         .bind(&invite_code)
@@ -148,13 +155,18 @@ async fn main() {
         .ok();
 
     let conn_token = models::ConnectionToken {
-        host: "localhost".to_string(),
-        port,
+        host: args.external_host.clone(),
+        port: args.external_port.unwrap_or(port),
         invite_code: invite_code.clone(),
     };
     let encoded_token = token::encode_token(&conn_token);
 
-    let state = AppState::new(pool.clone(), jwt_secret);
+    let state = AppState {
+        db: pool.clone(),
+        jwt_secret,
+        external_host: args.external_host,
+        external_port: args.external_port.unwrap_or(port),
+    };
 
     let app = Router::new()
         // Auth
