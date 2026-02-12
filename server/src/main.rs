@@ -161,12 +161,12 @@ async fn main() {
     };
     let encoded_token = token::encode_token(&conn_token);
 
-    let state = AppState {
-        db: pool.clone(),
+    let state = AppState::new(
+        pool.clone(),
         jwt_secret,
-        external_host: args.external_host,
-        external_port: args.external_port.unwrap_or(port),
-    };
+        args.external_host,
+        args.external_port.unwrap_or(port),
+    );
 
     let app = Router::new()
         // Auth

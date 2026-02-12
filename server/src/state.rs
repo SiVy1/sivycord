@@ -26,7 +26,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(db: SqlitePool, jwt_secret: String) -> Self {
+    pub fn new(db: SqlitePool, jwt_secret: String, external_host: String, external_port: u16) -> Self {
         let (global_tx, _) = broadcast::channel(1024);
         Self {
             db,
@@ -35,6 +35,8 @@ impl AppState {
             voice_members: Arc::new(DashMap::new()),
             global_tx,
             jwt_secret,
+            external_host,
+            external_port,
         }
     }
 
