@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  server:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    environment:
+      - PORT=3000
+      - DATABASE_PATH=/app/data/sivycord.db
+      - ADMIN_NICK=Admin # Change this for the first run to create an admin
+      - JWT_SECRET=random_secret_here # Ideally set this in .env
+    restart: always

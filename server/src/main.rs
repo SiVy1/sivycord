@@ -9,20 +9,34 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use clap::Parser;
 use tower_http::cors::CorsLayer;
 
 use state::AppState;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Port to listen on
+    #[arg(short, long, env = "PORT", default_value_t = 3000)]
+    port: u16,
+
+    /// Database path
+    #[arg(short, long, env = "DATABASE_PATH", default_value = "sivycord.db")]
+    db_path: String,
+
+    /// Admin nickname for first run
+    #[arg(long, env = "ADMIN_NICK")]
+    admin_nick: Option<String>,
+}
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let port: u16 = std::env::var("PORT")
-        .unwrap_or_else(|_| "3000".to_string())
-        .parse()
-        .expect("Invalid PORT");
-
-    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "sivycord.db".to_string());
+    let args = Args::parse();
+    let port = args.port;
+    let db_path = args.db_path;
 
     // JWT secret: from env, from file, or generate and save to file
     let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
@@ -55,9 +69,79 @@ async fn main() {
     tracing::info!("Initializing database at {db_path}");
     let pool = db::init_pool(&db_path).await;
 
+    // --- First-Run Admin Control ---
+    if let Some(nick) = args.admin_nick {
+        let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0);
+
+        if user_count == 0 {
+            use rand::Rng;
+            use argon2::{password_hash::{SaltString, rand_core::OsRng}, Argon2, PasswordHasher};
+
+            let temp_password: String = rand::thread_rng()
+                .sample_iter(&rand::distributions::Alphanumeric)
+                .take(12)
+                .map(char::from)
+                .collect();
+
+            let salt = SaltString::generate(&mut OsRng);
+            let argon2 = Argon2::default();
+            let password_hash = argon2
+                .hash_password(temp_password.as_bytes(), &salt)
+                .expect("Failed to hash password")
+                .to_string();
+
+            let user_id = uuid::Uuid::new_v4().to_string();
+            let username = nick.to_lowercase();
+            let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+            // Create admin user
+            sqlx::query("INSERT INTO users (id, username, display_name, password_hash) VALUES (?, ?, ?, ?)")
+                .bind(&user_id)
+                .bind(&username)
+                .bind(&nick)
+                .bind(&password_hash)
+                .execute(&pool)
+                .await
+                .expect("Failed to create admin user");
+
+            // Ensure Admin role exists
+            let admin_role_id = "admin-role";
+            sqlx::query("INSERT OR IGNORE INTO roles (id, name, color, position, permissions, created_at) VALUES (?, 'Admin', '#FF0000', 999, ?, ?)")
+                .bind(admin_role_id)
+                .bind(models::Permissions::ADMINISTRATOR.bits())
+                .bind(&now)
+                .execute(&pool)
+                .await
+                .ok();
+
+            // Assign Admin role
+            sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id, assigned_at) VALUES (?, ?, ?)")
+                .bind(&user_id)
+                .bind(admin_role_id)
+                .bind(&now)
+                .execute(&pool)
+                .await
+                .ok();
+
+            println!();
+            println!("  ╔══════════════════════════════════════════════╗");
+            println!("  ║          FIRST-RUN ADMIN CREATED!            ║");
+            println!("  ╠══════════════════════════════════════════════╣");
+            println!("  ║  Username: {:<34}║", username);
+            println!("  ║  Password: {:<34}║", temp_password);
+            println!("  ╠══════════════════════════════════════════════╣");
+            println!("  ║  PLEASE SAVE THESE CREDENTIALS NOW!          ║");
+            println!("  ╚══════════════════════════════════════════════╝");
+            println!();
+        }
+    }
+
     // Auto-generate an invite code on startup
     let invite_code = token::generate_invite_code();
-    sqlx::query("INSERT INTO invite_codes (code, max_uses) VALUES (?, NULL)")
+    sqlx::query("INSERT OR IGNORE INTO invite_codes (code, max_uses) VALUES (?, NULL)")
         .bind(&invite_code)
         .execute(&pool)
         .await
