@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:nightly-slim-bookworm as builder
+FROM rust:nightly as builder
 
 WORKDIR /usr/src/app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
