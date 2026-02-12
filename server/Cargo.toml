@@ -22,5 +22,5 @@ dashmap = "6"
 argon2 = "0.5"
 jsonwebtoken = "9"
 bitflags = { version = "2", features = ["serde"] }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 
