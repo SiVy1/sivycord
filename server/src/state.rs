@@ -33,10 +33,7 @@ impl AppState {
     }
 
     /// Get or create a broadcast channel for the given channel ID
-    pub fn get_channel_tx(
-        &self,
-        channel_id: &str,
-    ) -> broadcast::Sender<WsServerMessage> {
+    pub fn get_channel_tx(&self, channel_id: &str) -> broadcast::Sender<WsServerMessage> {
         self.channels
             .entry(channel_id.to_string())
             .or_insert_with(|| broadcast::channel(256).0)
@@ -57,15 +54,42 @@ impl AppState {
 
     // ─── Voice member tracking ───
 
-    pub fn join_voice(&self, channel_id: &str, user_id: &str, user_name: &str) -> Vec<VoicePeer> {
-        let mut members = self.voice_members.entry(channel_id.to_string()).or_default();
+    pub fn join_voice(
+        &self,
+        channel_id: &str,
+        user_id: &str,
+        user_name: &str,
+        is_muted: bool,
+        is_deafened: bool,
+    ) -> Vec<VoicePeer> {
+        let mut members = self
+            .voice_members
+            .entry(channel_id.to_string())
+            .or_default();
         // Remove if already present (re-join)
         members.retain(|p| p.user_id != user_id);
         members.push(VoicePeer {
             user_id: user_id.to_string(),
             user_name: user_name.to_string(),
+            is_muted,
+            is_deafened,
         });
         members.clone()
+    }
+
+    pub fn update_voice_status(
+        &self,
+        channel_id: &str,
+        user_id: &str,
+        is_muted: bool,
+        is_deafened: bool,
+    ) {
+        if let Some(mut members) = self.voice_members.get_mut(channel_id) {
+            if let Some(peer) = members.iter_mut().find(|p| p.user_id == user_id) {
+                peer.is_muted = is_muted;
+                peer.is_deafened = is_deafened;
+            }
+        }
     }
 
     pub fn leave_voice(&self, channel_id: &str, user_id: &str) {

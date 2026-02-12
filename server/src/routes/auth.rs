@@ -1,13 +1,13 @@
+use argon2::{
+    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
     Json,
 };
-use argon2::{
-    password_hash::{rand_core::OsRng, SaltString, PasswordHash, PasswordHasher, PasswordVerifier},
-    Argon2,
-};
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -17,7 +17,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
-    pub sub: String,        // user_id
+    pub sub: String, // user_id
     pub username: String,
     pub display_name: String,
     pub exp: usize,
@@ -64,16 +64,31 @@ pub async fn register(
 
     // Validate
     if username.len() < 3 || username.len() > 32 {
-        return Err((StatusCode::BAD_REQUEST, "Username must be 3-32 characters".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Username must be 3-32 characters".into(),
+        ));
     }
-    if !username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
-        return Err((StatusCode::BAD_REQUEST, "Username can only contain letters, numbers, _ and -".into()));
+    if !username
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Username can only contain letters, numbers, _ and -".into(),
+        ));
     }
     if password.len() < 4 {
-        return Err((StatusCode::BAD_REQUEST, "Password must be at least 4 characters".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Password must be at least 4 characters".into(),
+        ));
     }
     if display_name.is_empty() || display_name.len() > 32 {
-        return Err((StatusCode::BAD_REQUEST, "Display name must be 1-32 characters".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Display name must be 1-32 characters".into(),
+        ));
     }
 
     // Check duplicate
@@ -92,31 +107,41 @@ pub async fn register(
     let argon2 = Argon2::default();
     let password_hash = argon2
         .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Hash error: {e}")))?
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Hash error: {e}"),
+            )
+        })?
         .to_string();
 
     let user_id = Uuid::new_v4().to_string();
 
-    sqlx::query("INSERT INTO users (id, username, display_name, password_hash) VALUES (?, ?, ?, ?)")
-        .bind(&user_id)
-        .bind(&username)
-        .bind(&display_name)
-        .bind(&password_hash)
-        .execute(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    sqlx::query(
+        "INSERT INTO users (id, username, display_name, password_hash) VALUES (?, ?, ?, ?)",
+    )
+    .bind(&user_id)
+    .bind(&username)
+    .bind(&display_name)
+    .bind(&password_hash)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let token = create_jwt(&state.jwt_secret, &user_id, &username, &display_name)?;
 
-    Ok((StatusCode::CREATED, Json(AuthResponse {
-        token,
-        user: UserInfo {
-            id: user_id,
-            username,
-            display_name,
-            avatar_url: None,
-        },
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(AuthResponse {
+            token,
+            user: UserInfo {
+                id: user_id,
+                username,
+                display_name,
+                avatar_url: None,
+            },
+        }),
+    ))
 }
 
 pub async fn login(
@@ -147,9 +172,19 @@ pub async fn login(
 
     Argon2::default()
         .verify_password(req.password.as_bytes(), &parsed_hash)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid username or password".to_string()))?;
+        .map_err(|_| {
+            (
+                StatusCode::UNAUTHORIZED,
+                "Invalid username or password".to_string(),
+            )
+        })?;
 
-    let token = create_jwt(&state.jwt_secret, &user.id, &user.username, &user.display_name)?;
+    let token = create_jwt(
+        &state.jwt_secret,
+        &user.id,
+        &user.username,
+        &user.display_name,
+    )?;
 
     Ok(Json(AuthResponse {
         token,
@@ -176,12 +211,13 @@ pub async fn get_me(
         avatar_url: Option<String>,
     }
 
-    let user: UserRow = sqlx::query_as("SELECT id, username, display_name, avatar_url FROM users WHERE id = ?")
-        .bind(&claims.sub)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-        .ok_or((StatusCode::NOT_FOUND, "User not found".into()))?;
+    let user: UserRow =
+        sqlx::query_as("SELECT id, username, display_name, avatar_url FROM users WHERE id = ?")
+            .bind(&claims.sub)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+            .ok_or((StatusCode::NOT_FOUND, "User not found".into()))?;
 
     Ok(Json(UserInfo {
         id: user.id,
@@ -220,12 +256,18 @@ fn create_jwt(
 }
 
 pub fn extract_claims(secret: &str, headers: &HeaderMap) -> Result<Claims, (StatusCode, String)> {
-    let auth = headers.get("authorization")
+    let auth = headers
+        .get("authorization")
         .and_then(|v| v.to_str().ok())
-        .ok_or((StatusCode::UNAUTHORIZED, "Missing Authorization header".into()))?;
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "Missing Authorization header".into(),
+        ))?;
 
-    let token = auth.strip_prefix("Bearer ")
-        .ok_or((StatusCode::UNAUTHORIZED, "Invalid Authorization format".into()))?;
+    let token = auth.strip_prefix("Bearer ").ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Invalid Authorization format".into(),
+    ))?;
 
     decode_jwt(secret, token)
 }

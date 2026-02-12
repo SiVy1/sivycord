@@ -176,3 +176,19 @@ pub async fn delete_emoji(
 
     Ok(StatusCode::NO_CONTENT)
 }
+
+/// Serve emoji image by name
+pub async fn serve_emoji_by_name(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<axum::response::Redirect, (StatusCode, String)> {
+    let emoji: CustomEmoji = sqlx::query_as("SELECT * FROM custom_emoji WHERE name = ?")
+        .bind(&name.to_lowercase())
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "Emoji not found".into()))?;
+
+    Ok(axum::response::Redirect::to(&format!("/api/uploads/{}", emoji.upload_id)))
+}
+

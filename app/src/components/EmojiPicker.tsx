@@ -93,11 +93,11 @@ export function EmojiPicker({
   return (
     <div
       ref={ref}
-      className="absolute bottom-full mb-2 left-0 w-72 bg-bg-secondary border border-border rounded-xl shadow-lg overflow-hidden z-50"
+      className="absolute bottom-full mb-3 left-0 w-80 bg-bg-secondary border border-border/50 rounded-2xl shadow-2xl overflow-hidden z-50 backdrop-blur-xl"
     >
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <span className="text-xs font-semibold text-text-primary">
-          Custom Emoji
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border/50 bg-bg-primary/50">
+        <span className="text-xs font-bold text-text-primary uppercase tracking-widest">
+          Emojis
         </span>
         {authToken && (
           <button

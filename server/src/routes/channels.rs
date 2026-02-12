@@ -32,7 +32,10 @@ pub async fn create_channel(
     }
 
     // Sanitize: only allow letters, numbers, hyphens, underscores
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ' ')
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -43,20 +46,23 @@ pub async fn create_channel(
     }
 
     // Validate description length
-    let description = req.description.chars().take(MAX_DESCRIPTION).collect::<String>();
+    let description = req
+        .description
+        .chars()
+        .take(MAX_DESCRIPTION)
+        .collect::<String>();
 
     // Check for duplicate name
-    let existing: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM channels WHERE LOWER(name) = LOWER(?) AND channel_type = ?"
-    )
-    .bind(&name)
-    .bind(&channel_type)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to check duplicate channel: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let existing: Option<(String,)> =
+        sqlx::query_as("SELECT id FROM channels WHERE LOWER(name) = LOWER(?) AND channel_type = ?")
+            .bind(&name)
+            .bind(&channel_type)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to check duplicate channel: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
 
     if existing.is_some() {
         return Err(StatusCode::CONFLICT);
@@ -64,14 +70,13 @@ pub async fn create_channel(
 
     let id = Uuid::new_v4().to_string();
 
-    let max_pos: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(position) FROM channels")
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get max position: {e}");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    let max_pos: Option<i64> = sqlx::query_scalar("SELECT MAX(position) FROM channels")
+        .fetch_one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get max position: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     let position = max_pos.unwrap_or(0) + 1;
 
     sqlx::query("INSERT INTO channels (id, name, description, position, channel_type) VALUES (?, ?, ?, ?, ?)")

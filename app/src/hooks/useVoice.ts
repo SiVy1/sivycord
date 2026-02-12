@@ -1,7 +1,366 @@
-import { useRef, useCallback } from "react";
+import { useCallback, useEffect } from "react";
 import { useStore } from "../store";
-import type { WsClientMessage, WsServerMessage } from "../types";
+import type { WsServerMessage } from "../types";
 
+// ─── Module-level singleton state ───
+// These live outside the hook so every component calling useVoice()
+// shares the exact same WebSocket, peer connections, streams, etc.
+
+let ws: WebSocket | null = null;
+let localStream: MediaStream | null = null;
+let displayStream: MediaStream | null = null;
+let localUserId = "unknown";
+let currentChannelId: string | null = null;
+
+const peerConnections = new Map<string, RTCPeerConnection>();
+const makingOffer = new Map<string, boolean>();
+const audioElements = new Map<string, HTMLAudioElement>();
+const screenTrackSenders = new Map<string, RTCRtpSender>();
+
+// VAD (voice activity detection)
+let audioContext: AudioContext | null = null;
+let analyserNode: AnalyserNode | null = null;
+let vadInterval: ReturnType<typeof setInterval> | null = null;
+let isTalkingLocal = false;
+
+// Mute / Deafen state
+let isMutedLocal = false;
+let isDeafenedLocal = false;
+
+const ICE_SERVERS: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
+
+// ─── Helper: play toggle sound ───
+function playToggleSound(on: boolean) {
+  const soundSettings = useStore.getState().soundSettings;
+  const soundType = on ? null : on === false ? "muteSound" : null;
+
+  // Try custom sound first
+  if (soundType && soundSettings[soundType as keyof typeof soundSettings]) {
+    try {
+      const audio = new Audio(
+        soundSettings[soundType as keyof typeof soundSettings] as string
+      );
+      audio.volume = 0.3;
+      audio.play().catch(() => {});
+      return;
+    } catch {
+      // Fall back to default
+    }
+  }
+
+  // Default beep sound
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+    // Higher pitch = on, lower = off
+    osc.frequency.value = on ? 480 : 340;
+    gain.gain.value = 0.12;
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.12);
+    osc.onended = () => ctx.close();
+  } catch {
+    // ignore
+  }
+}
+
+// ─── Helper: play join/leave sound ───
+function playVoiceSound(type: "join" | "leave") {
+  const soundSettings = useStore.getState().soundSettings;
+  const soundKey = type === "join" ? "joinSound" : "leaveSound";
+
+  // Try custom sound first
+  if (soundSettings[soundKey]) {
+    try {
+      const audio = new Audio(soundSettings[soundKey] as string);
+      audio.volume = 0.4;
+      audio.play().catch(() => {});
+      return;
+    } catch {
+      // Fall back to default
+    }
+  }
+
+  // Default sound
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = "sine";
+
+    if (type === "join") {
+      // Rising tone for join
+      osc.frequency.setValueAtTime(400, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
+    } else {
+      // Falling tone for leave
+      osc.frequency.setValueAtTime(600, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.1);
+    }
+
+    gain.gain.value = 0.15;
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.15);
+    osc.onended = () => ctx.close();
+  } catch {
+    // ignore
+  }
+}
+
+// ─── Helper: broadcast talking state ───
+function broadcastTalkingState(talking: boolean) {
+  if (talking === isTalkingLocal) return; // debounce
+  isTalkingLocal = talking;
+
+  const channelId = currentChannelId;
+  if (ws?.readyState === WebSocket.OPEN && channelId) {
+    ws.send(
+      JSON.stringify({
+        type: "voice_talking",
+        channel_id: channelId,
+        user_id: localUserId,
+        talking,
+      })
+    );
+  }
+  useStore.getState().setTalking(localUserId, talking);
+}
+
+// ─── Helper: start VAD ───
+function startVAD(stream: MediaStream) {
+  stopVAD();
+  try {
+    audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    analyserNode = audioContext.createAnalyser();
+    analyserNode.fftSize = 512;
+    analyserNode.smoothingTimeConstant = 0.4;
+    source.connect(analyserNode);
+
+    const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+    const THRESHOLD = 15; // volume threshold (0-255)
+    let silenceFrames = 0;
+    const SILENCE_DELAY = 8; // ~8 * 50ms = 400ms of silence to stop
+
+    vadInterval = setInterval(() => {
+      if (!analyserNode) return;
+      analyserNode.getByteFrequencyData(dataArray); // Average volume across frequency bins
+      let sum = 0;
+      for (const value of dataArray) {
+        sum += value;
+      }
+      const avg = sum / dataArray.length;
+
+      if (avg > THRESHOLD) {
+        silenceFrames = 0;
+        broadcastTalkingState(true);
+      } else {
+        silenceFrames++;
+        if (silenceFrames >= SILENCE_DELAY) {
+          broadcastTalkingState(false);
+        }
+      }
+    }, 50);
+  } catch (e) {
+    console.error("VAD init failed", e);
+  }
+}
+
+function stopVAD() {
+  if (vadInterval) {
+    clearInterval(vadInterval);
+    vadInterval = null;
+  }
+  if (audioContext) {
+    audioContext.close().catch(() => {});
+    audioContext = null;
+  }
+  analyserNode = null;
+  isTalkingLocal = false;
+}
+
+// ─── Helper: create peer connection ───
+function createPeerConnection(
+  remoteUserId: string,
+  channelId: string
+): RTCPeerConnection {
+  let pc = peerConnections.get(remoteUserId);
+  if (pc) return pc;
+
+  pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  makingOffer.set(remoteUserId, false);
+
+  // Add ALL current local tracks
+  localStream?.getTracks().forEach((track) => {
+    pc!.addTrack(track, localStream!);
+  });
+  if (displayStream) {
+    displayStream.getVideoTracks().forEach((track) => {
+      const sender = pc!.addTrack(track, displayStream!);
+      screenTrackSenders.set(remoteUserId, sender);
+    });
+  }
+
+  pc.ontrack = (event) => {
+    const stream = event.streams[0];
+    if (!stream) return;
+    const track = event.track;
+    if (track.kind === "audio") {
+      let audio = audioElements.get(remoteUserId);
+      if (!audio) {
+        audio = document.createElement("audio");
+        audio.autoplay = true;
+        audio.setAttribute("playsinline", "");
+        document.body.appendChild(audio);
+        audioElements.set(remoteUserId, audio);
+      }
+      audio.srcObject = stream;
+    } else if (track.kind === "video") {
+      useStore.getState().addScreenShare(remoteUserId, stream);
+      track.onended = () => {
+        useStore.getState().removeScreenShare(remoteUserId);
+      };
+    }
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate && ws?.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "ice_candidate",
+          channel_id: channelId,
+          target_user_id: remoteUserId,
+          from_user_id: localUserId,
+          candidate: JSON.stringify(event.candidate),
+        })
+      );
+    }
+  };
+  pc.onnegotiationneeded = async () => {
+    try {
+      if (makingOffer.get(remoteUserId)) return;
+
+      // Check if we're in a valid state to negotiate
+      if (pc!.signalingState !== "stable") {
+        console.warn(`Negotiation skipped, state: ${pc!.signalingState}`);
+        return;
+      }
+
+      makingOffer.set(remoteUserId, true);
+
+      // Double-check state before creating offer
+      if (pc!.signalingState !== "stable") {
+        makingOffer.set(remoteUserId, false);
+        return;
+      }
+
+      const offer = await pc!.createOffer();
+
+      // Check state again before setting local description
+      if (pc!.signalingState !== "stable") {
+        makingOffer.set(remoteUserId, false);
+        return;
+      }
+
+      await pc!.setLocalDescription(offer);
+
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(
+          JSON.stringify({
+            type: "voice_offer",
+            channel_id: channelId,
+            target_user_id: remoteUserId,
+            from_user_id: localUserId,
+            sdp: JSON.stringify(pc!.localDescription),
+          })
+        );
+      }
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.name === "InvalidStateError" || err.name === "InvalidAccessError")
+      ) {
+        console.warn("Negotiation error (ignored):", err.message);
+        return;
+      }
+      console.error("Negotiation failed", err);
+    } finally {
+      makingOffer.set(remoteUserId, false);
+    }
+  };
+
+  peerConnections.set(remoteUserId, pc);
+  return pc;
+}
+
+// ─── Helper: cleanup everything ───
+function cleanupAll() {
+  peerConnections.forEach((pc) => {
+    try {
+      pc.close();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  });
+  peerConnections.clear();
+  makingOffer.clear();
+
+  localStream?.getTracks().forEach((t) => {
+    try {
+      t.stop();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  });
+  localStream = null;
+
+  displayStream?.getTracks().forEach((t) => {
+    try {
+      t.stop();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  });
+  displayStream = null;
+
+  audioElements.forEach((el) => {
+    try {
+      el.srcObject = null;
+      el.remove();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  });
+  audioElements.clear();
+  screenTrackSenders.clear();
+
+  stopVAD();
+  broadcastTalkingState(false);
+  isMutedLocal = false;
+  isDeafenedLocal = false;
+
+  useStore.getState().removeScreenShare(localUserId);
+
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+
+  currentChannelId = null;
+}
+
+// ─── The hook ───
 export function useVoice() {
   const voiceChannelId = useStore((s) => s.voiceChannelId);
   const setVoiceChannel = useStore((s) => s.setVoiceChannel);
@@ -11,134 +370,76 @@ export function useVoice() {
   const activeServerId = useStore((s) => s.activeServerId);
   const servers = useStore((s) => s.servers);
   const displayName = useStore((s) => s.displayName);
+  const currentUser = useStore((s) => s.currentUser);
+  const voiceSettings = useStore((s) => s.voiceSettings);
+  const setTalking = useStore((s) => s.setTalking);
+  const isScreenSharing = displayStream !== null;
 
   const activeServer = servers.find((s) => s.id === activeServerId);
+  // PTT key handling
+  useEffect(() => {
+    if (!voiceChannelId) return; // not in voice, no need for key listeners
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const audioElementsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-
-  const userId = activeServer?.config.userId || "unknown";
-
-  const cleanup = useCallback(() => {
-    peerConnectionsRef.current.forEach((pc) => {
-      try {
-        pc.close();
-      } catch {
-        /* ignore */
-      }
-    });
-    peerConnectionsRef.current.clear();
-
-    localStreamRef.current?.getTracks().forEach((t) => {
-      try {
-        t.stop();
-      } catch {
-        /* ignore */
-      }
-    });
-    localStreamRef.current = null;
-
-    audioElementsRef.current.forEach((el) => {
-      try {
-        el.srcObject = null;
-        el.remove();
-      } catch {
-        /* ignore */
-      }
-    });
-    audioElementsRef.current.clear();
-
-    if (wsRef.current) {
-      wsRef.current.onclose = null;
-      wsRef.current.close();
-      wsRef.current = null;
+    if (voiceSettings.mode !== "ptt") {
+      // Activity mode: enable tracks, start VAD
+      localStream?.getAudioTracks().forEach((t) => (t.enabled = true));
+      if (localStream) startVAD(localStream);
+      return () => {
+        stopVAD();
+      };
     }
-  }, []);
 
-  const createPeerConnection = useCallback(
-    (remoteUserId: string, channelId: string): RTCPeerConnection => {
-      // Close existing if re-creating
-      const existing = peerConnectionsRef.current.get(remoteUserId);
-      if (existing) {
-        try {
-          existing.close();
-        } catch {
-          /* ignore */
-        }
-        peerConnectionsRef.current.delete(remoteUserId);
+    // PTT mode: disable tracks by default
+    localStream?.getAudioTracks().forEach((t) => (t.enabled = false));
+    stopVAD();
+
+    const pttKey = voiceSettings.pttKey;
+    const isMouseButton = pttKey.startsWith("Mouse");
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isMouseButton && e.code === pttKey) {
+        localStream?.getAudioTracks().forEach((t) => (t.enabled = true));
+        broadcastTalkingState(true);
       }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!isMouseButton && e.code === pttKey) {
+        localStream?.getAudioTracks().forEach((t) => (t.enabled = false));
+        broadcastTalkingState(false);
+      }
+    };
 
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
-        ],
-      });
+    const handleMouseDown = (e: MouseEvent) => {
+      if (isMouseButton && `Mouse${e.button}` === pttKey) {
+        e.preventDefault();
+        localStream?.getAudioTracks().forEach((t) => (t.enabled = true));
+        broadcastTalkingState(true);
+      }
+    };
+    const handleMouseUp = (e: MouseEvent) => {
+      if (isMouseButton && `Mouse${e.button}` === pttKey) {
+        e.preventDefault();
+        localStream?.getAudioTracks().forEach((t) => (t.enabled = false));
+        broadcastTalkingState(false);
+      }
+    };
 
-      localStreamRef.current?.getTracks().forEach((track) => {
-        try {
-          pc.addTrack(track, localStreamRef.current!);
-        } catch {
-          /* ignore */
-        }
-      });
-
-      pc.ontrack = (event) => {
-        const stream = event.streams[0];
-        if (!stream) return;
-        let audio = audioElementsRef.current.get(remoteUserId);
-        if (!audio) {
-          audio = document.createElement("audio");
-          audio.autoplay = true;
-          audio.setAttribute("playsinline", "");
-          document.body.appendChild(audio);
-          audioElementsRef.current.set(remoteUserId, audio);
-        }
-        audio.srcObject = stream;
-      };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate && wsRef.current?.readyState === WebSocket.OPEN) {
-          const msg: WsClientMessage = {
-            type: "ice_candidate",
-            channel_id: channelId,
-            target_user_id: remoteUserId,
-            from_user_id: userId,
-            candidate: JSON.stringify(event.candidate),
-          };
-          wsRef.current.send(JSON.stringify(msg));
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        if (
-          pc.connectionState === "failed" ||
-          pc.connectionState === "closed"
-        ) {
-          const audio = audioElementsRef.current.get(remoteUserId);
-          if (audio) {
-            audio.srcObject = null;
-            audio.remove();
-            audioElementsRef.current.delete(remoteUserId);
-          }
-          peerConnectionsRef.current.delete(remoteUserId);
-        }
-      };
-
-      peerConnectionsRef.current.set(remoteUserId, pc);
-      return pc;
-    },
-    [userId],
-  );
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [voiceSettings.mode, voiceSettings.pttKey, voiceChannelId]);
 
   const joinVoice = useCallback(
     async (channelId: string) => {
       if (!activeServer) return;
-
-      // Leave current voice channel first
-      cleanup();
+      cleanupAll();
       setVoiceMembers([]);
 
       try {
@@ -146,171 +447,362 @@ export function useVoice() {
           audio: true,
           video: false,
         });
-        localStreamRef.current = stream;
-      } catch (err: any) {
-        const msg =
-          err.name === "NotAllowedError"
-            ? "Microphone access denied. Check browser permissions."
-            : err.name === "NotFoundError"
-              ? "No microphone found."
-              : "Could not access microphone.";
-        console.error(msg, err);
-        // Still allow joining to listen (without mic)
-        // But in this case, don't proceed since we need audio
+        localStream = stream;
+      } catch (err) {
+        console.error("Mic failed", err);
         return;
       }
 
       setVoiceChannel(channelId);
+      currentChannelId = channelId;
 
-      const { host, port } = activeServer.config;
-      let ws: WebSocket;
+      const { host, port, authToken } = activeServer.config;
       try {
-        ws = new WebSocket(`ws://${host}:${port}/ws`);
-      } catch {
-        console.error("Failed to create WebSocket");
-        cleanup();
-        setVoiceChannel(null);
-        return;
-      }
-      wsRef.current = ws;
+        const wsUrl = `ws://${host}:${port}/ws${
+          authToken ? `?token=${authToken}` : ""
+        }`;
+        const socket = new WebSocket(wsUrl);
+        ws = socket;
 
-      ws.onopen = () => {
-        const msg: WsClientMessage = {
-          type: "join_voice",
-          channel_id: channelId,
-          user_id: userId,
-          user_name: displayName || "Anonymous",
+        socket.onopen = () => {
+          // Wait for identity message
         };
-        ws.send(JSON.stringify(msg));
-      };
 
-      ws.onmessage = async (event) => {
-        let data: WsServerMessage;
-        try {
-          data = JSON.parse(event.data);
-        } catch {
-          return;
-        }
+        socket.onmessage = async (event) => {
+          const data: WsServerMessage = JSON.parse(event.data);
 
-        try {
-          if (data.type === "voice_members") {
+          if (data.type === "identity") {
+            localUserId = data.user_id; // Register joining voice on server
+            socket.send(
+              JSON.stringify({
+                type: "join_voice",
+                channel_id: channelId,
+                user_id: data.user_id,
+                user_name:
+                  displayName || currentUser?.display_name || "Anonymous",
+              })
+            );
+
+            // Play join sound
+            playVoiceSound("join");
+
+            // Start VAD if in activity mode
+            if (
+              useStore.getState().voiceSettings.mode === "activity" &&
+              localStream
+            ) {
+              startVAD(localStream);
+            }
+          } else if (data.type === "voice_members") {
             const members = Array.isArray(data.members) ? data.members : [];
             setVoiceMembers(members);
-            for (const member of members) {
-              if (member.user_id !== userId) {
-                const pc = createPeerConnection(member.user_id, channelId);
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                const msg: WsClientMessage = {
-                  type: "voice_offer",
-                  channel_id: channelId,
-                  target_user_id: member.user_id,
-                  from_user_id: userId,
-                  sdp: JSON.stringify(offer),
-                };
-                if (ws.readyState === WebSocket.OPEN)
-                  ws.send(JSON.stringify(msg));
-              }
-            }
-          }
-
-          if (data.type === "voice_peer_joined") {
+            members.forEach((m) => {
+              if (m.user_id !== localUserId)
+                createPeerConnection(m.user_id, channelId);
+            });
+          } else if (data.type === "voice_peer_joined") {
             addVoiceMember({
               user_id: data.user_id,
               user_name: data.user_name || "Unknown",
+              is_muted: false,
+              is_deafened: false,
             });
-          }
-
-          if (data.type === "voice_peer_left") {
+            if (data.user_id !== localUserId)
+              createPeerConnection(data.user_id, channelId);
+          } else if (data.type === "voice_peer_left") {
             removeVoiceMember(data.user_id);
-            const pc = peerConnectionsRef.current.get(data.user_id);
+            const pc = peerConnections.get(data.user_id);
             if (pc) {
-              try {
-                pc.close();
-              } catch {}
-              peerConnectionsRef.current.delete(data.user_id);
+              pc.close();
+              peerConnections.delete(data.user_id);
             }
-            const audio = audioElementsRef.current.get(data.user_id);
+            const audio = audioElements.get(data.user_id);
             if (audio) {
               audio.srcObject = null;
               audio.remove();
-              audioElementsRef.current.delete(data.user_id);
+              audioElements.delete(data.user_id);
             }
-          }
-
-          if (data.type === "voice_offer" && data.from_user_id !== userId) {
+            useStore.getState().removeScreenShare(data.user_id);
+          } else if (data.type === "voice_offer") {
+            if (data.target_user_id !== localUserId) return;
             const pc =
-              peerConnectionsRef.current.get(data.from_user_id) ||
+              peerConnections.get(data.from_user_id) ||
               createPeerConnection(data.from_user_id, channelId);
-            await pc.setRemoteDescription(JSON.parse(data.sdp));
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            const msg: WsClientMessage = {
-              type: "voice_answer",
-              channel_id: channelId,
-              target_user_id: data.from_user_id,
-              from_user_id: userId,
-              sdp: JSON.stringify(answer),
-            };
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
-          }
 
-          if (data.type === "voice_answer" && data.from_user_id !== userId) {
-            const pc = peerConnectionsRef.current.get(data.from_user_id);
-            if (pc && pc.signalingState === "have-local-offer") {
+            const description = JSON.parse(data.sdp);
+            const readyForOffer =
+              !makingOffer.get(data.from_user_id) &&
+              (pc.signalingState === "stable" ||
+                pc.signalingState === "have-local-offer");
+
+            const polite = localUserId < data.from_user_id;
+
+            try {
+              if (description.type === "offer" && !readyForOffer) {
+                if (!polite) return;
+                // Only rollback if in have-local-offer state
+                if (pc.signalingState === "have-local-offer") {
+                  await pc.setLocalDescription({ type: "rollback" });
+                }
+              }
+
+              // Check if we're in a valid state to accept the offer
+              if (description.type === "offer") {
+                if (
+                  pc.signalingState !== "stable" &&
+                  pc.signalingState !== "have-local-offer"
+                ) {
+                  console.warn(
+                    `Cannot accept offer in state: ${pc.signalingState}`
+                  );
+                  return;
+                }
+                await pc.setRemoteDescription(description);
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                socket.send(
+                  JSON.stringify({
+                    type: "voice_answer",
+                    channel_id: channelId,
+                    target_user_id: data.from_user_id,
+                    from_user_id: localUserId,
+                    sdp: JSON.stringify(pc.localDescription),
+                  })
+                );
+              }
+            } catch (err) {
+              if (
+                err instanceof Error &&
+                (err.name === "InvalidStateError" ||
+                  err.name === "InvalidAccessError")
+              ) {
+                // Ignore invalid state errors during negotiation
+                console.warn("Negotiation error (ignored):", err.message);
+                return;
+              }
+              console.error("Error handling voice offer:", err);
+            }
+          } else if (data.type === "voice_answer") {
+            if (data.target_user_id !== localUserId) return;
+            const pc = peerConnections.get(data.from_user_id);
+            if (!pc) return;
+
+            // Only accept answer if we're in the right state
+            if (pc.signalingState !== "have-local-offer") {
+              console.warn(
+                `Cannot accept answer in state: ${pc.signalingState}`
+              );
+              return;
+            }
+
+            try {
               await pc.setRemoteDescription(JSON.parse(data.sdp));
+            } catch (err) {
+              if (
+                err instanceof Error &&
+                (err.name === "InvalidStateError" ||
+                  err.name === "InvalidAccessError")
+              ) {
+                console.warn("Answer error (ignored):", err.message);
+                return;
+              }
+              console.error("Error handling voice answer:", err);
             }
-          }
-
-          if (data.type === "ice_candidate" && data.from_user_id !== userId) {
-            const pc = peerConnectionsRef.current.get(data.from_user_id);
-            if (pc && pc.remoteDescription) {
-              await pc.addIceCandidate(JSON.parse(data.candidate));
+          } else if (data.type === "ice_candidate") {
+            if (data.target_user_id !== localUserId) return;
+            const pc = peerConnections.get(data.from_user_id);
+            if (pc) {
+              try {
+                await pc.addIceCandidate(JSON.parse(data.candidate));
+              } catch {
+                // Ignore ICE candidate errors
+              }
             }
+          } else if (data.type === "voice_talking") {
+            setTalking(data.user_id, data.talking);
+          } else if (data.type === "voice_status_update") {
+            const currentMembers = useStore.getState().voiceMembers;
+            const updated = currentMembers.map((m) =>
+              m.user_id === data.user_id
+                ? {
+                    ...m,
+                    is_muted: data.is_muted,
+                    is_deafened: data.is_deafened,
+                  }
+                : m
+            );
+            setVoiceMembers(updated);
           }
-        } catch (err) {
-          console.error("Voice signaling error:", err);
-        }
-      };
+        };
 
-      ws.onerror = () => {
-        console.error("Voice WebSocket error");
-      };
-
-      ws.onclose = () => {
-        wsRef.current = null;
-      };
+        socket.onclose = () => {
+          ws = null;
+        };
+      } catch (err) {
+        console.error("WS Voice failed", err);
+        cleanupAll();
+        setVoiceChannel(null);
+      }
     },
     [
       activeServer,
-      userId,
       displayName,
-      createPeerConnection,
+      currentUser?.display_name,
       setVoiceChannel,
       setVoiceMembers,
       addVoiceMember,
       removeVoiceMember,
-      cleanup,
-    ],
+      setTalking,
+    ]
   );
+  const stopScreenShareInternal = () => {
+    displayStream?.getTracks().forEach((t) => t.stop());
+    displayStream = null;
+    useStore.getState().removeScreenShare(localUserId);
+    peerConnections.forEach((pc, remoteUserId) => {
+      const sender = screenTrackSenders.get(remoteUserId);
+      if (sender) {
+        try {
+          pc.removeTrack(sender);
+        } catch {
+          // ignore
+        }
+        screenTrackSenders.delete(remoteUserId);
+      }
+    });
+  };
 
+  const startScreenShare = useCallback(async () => {
+    if (!currentChannelId || displayStream) return;
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true,
+      });
+      displayStream = stream;
+      useStore.getState().addScreenShare(localUserId, stream);
+
+      const videoTrack = stream.getVideoTracks()[0];
+      peerConnections.forEach((pc, remoteUserId) => {
+        try {
+          const sender = pc.addTrack(videoTrack, stream);
+          screenTrackSenders.set(remoteUserId, sender);
+        } catch (e) {
+          console.error("Screen track add failed", e);
+        }
+      });
+
+      videoTrack.onended = () => stopScreenShareInternal();
+    } catch (err) {
+      console.error("Screen share failed", err);
+    }
+  }, []);
+
+  const stopScreenShare = useCallback(() => {
+    stopScreenShareInternal();
+  }, []);
   const leaveVoice = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN && voiceChannelId) {
+    if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
       try {
-        const msg: WsClientMessage = {
-          type: "leave_voice",
-          channel_id: voiceChannelId,
-          user_id: userId,
-        };
-        wsRef.current.send(JSON.stringify(msg));
+        ws.send(
+          JSON.stringify({
+            type: "leave_voice",
+            channel_id: currentChannelId,
+            user_id: localUserId,
+          })
+        );
       } catch {
-        /* closing anyway */
+        // ignore
       }
     }
-    cleanup();
+
+    // Play leave sound
+    playVoiceSound("leave");
+
+    cleanupAll();
     setVoiceChannel(null);
     setVoiceMembers([]);
-  }, [voiceChannelId, userId, cleanup, setVoiceChannel, setVoiceMembers]);
+  }, [setVoiceChannel, setVoiceMembers]);
 
-  return { joinVoice, leaveVoice };
+  const toggleMute = useCallback(() => {
+    isMutedLocal = !isMutedLocal;
+    playToggleSound(!isMutedLocal);
+    localStream?.getAudioTracks().forEach((t) => {
+      t.enabled = !isMutedLocal;
+    });
+    if (isMutedLocal) {
+      broadcastTalkingState(false);
+      stopVAD();
+    } else if (
+      useStore.getState().voiceSettings.mode === "activity" &&
+      localStream
+    ) {
+      startVAD(localStream);
+    }
+
+    if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
+      ws.send(
+        JSON.stringify({
+          type: "voice_status_update",
+          channel_id: currentChannelId,
+          user_id: localUserId,
+          is_muted: isMutedLocal,
+          is_deafened: isDeafenedLocal,
+        })
+      );
+    }
+  }, []);
+
+  const toggleDeafen = useCallback(() => {
+    isDeafenedLocal = !isDeafenedLocal;
+    playToggleSound(!isDeafenedLocal);
+    audioElements.forEach((audio) => {
+      audio.muted = isDeafenedLocal;
+    });
+    // Also mute mic when deafened
+    if (isDeafenedLocal && !isMutedLocal) {
+      isMutedLocal = true;
+      localStream?.getAudioTracks().forEach((t) => {
+        t.enabled = false;
+      });
+      broadcastTalkingState(false);
+      stopVAD();
+    } else if (!isDeafenedLocal && isMutedLocal) {
+      // Un-deafen also un-mutes
+      isMutedLocal = false;
+      localStream?.getAudioTracks().forEach((t) => {
+        t.enabled = true;
+      });
+      if (
+        useStore.getState().voiceSettings.mode === "activity" &&
+        localStream
+      ) {
+        startVAD(localStream);
+      }
+    }
+
+    if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
+      ws.send(
+        JSON.stringify({
+          type: "voice_status_update",
+          channel_id: currentChannelId,
+          user_id: localUserId,
+          is_muted: isMutedLocal,
+          is_deafened: isDeafenedLocal,
+        })
+      );
+    }
+  }, []);
+
+  return {
+    joinVoice,
+    leaveVoice,
+    startScreenShare,
+    stopScreenShare,
+    isScreenSharing,
+    toggleMute,
+    toggleDeafen,
+    isMuted: isMutedLocal,
+    isDeafened: isDeafenedLocal,
+  };
 }

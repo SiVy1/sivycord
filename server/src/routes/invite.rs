@@ -76,7 +76,7 @@ pub struct DirectJoinRequest {
 }
 
 pub async fn join_direct(
-    Json(req): Json<DirectJoinRequest>,
+    Json(_req): Json<DirectJoinRequest>,
 ) -> Json<JoinResponse> {
     let user_id = Uuid::new_v4().to_string();
     Json(JoinResponse {

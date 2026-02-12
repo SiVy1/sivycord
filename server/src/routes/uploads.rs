@@ -1,8 +1,8 @@
 use axum::{
-    extract::{Multipart, Path, State},
-    http::{HeaderMap, StatusCode, header},
-    response::IntoResponse,
     body::Body,
+    extract::{Multipart, Path, State},
+    http::{header, HeaderMap, StatusCode},
+    response::IntoResponse,
 };
 use uuid::Uuid;
 
@@ -10,17 +10,23 @@ use crate::routes::auth;
 use crate::state::AppState;
 
 const MAX_AVATAR_SIZE: usize = 8 * 1024 * 1024; // 8MB
-const MAX_FILE_SIZE: usize = 25 * 1024 * 1024;  // 25MB
+const MAX_FILE_SIZE: usize = 25 * 1024 * 1024; // 25MB
 
-const ALLOWED_IMAGE_TYPES: &[&str] = &[
-    "image/png", "image/jpeg", "image/gif", "image/webp",
-];
+const ALLOWED_IMAGE_TYPES: &[&str] = &["image/png", "image/jpeg", "image/gif", "image/webp"];
 const ALLOWED_FILE_TYPES: &[&str] = &[
-    "image/png", "image/jpeg", "image/gif", "image/webp",
-    "application/pdf", "text/plain",
-    "audio/mpeg", "audio/ogg", "audio/wav",
-    "video/mp4", "video/webm",
-    "application/zip", "application/gzip",
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "application/pdf",
+    "text/plain",
+    "audio/mpeg",
+    "audio/ogg",
+    "audio/wav",
+    "video/mp4",
+    "video/webm",
+    "application/zip",
+    "application/gzip",
 ];
 
 fn get_extension(mime: &str) -> &str {
@@ -50,27 +56,39 @@ pub async fn upload_file(
 ) -> Result<(StatusCode, axum::Json<serde_json::Value>), (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("Multipart error: {e}"))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Multipart error: {e}")))?
+    {
         let field_name = field.name().unwrap_or("").to_string();
         if field_name != "file" {
             continue;
         }
 
         let filename = field.file_name().unwrap_or("upload").to_string();
-        let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let content_type = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
 
         if !ALLOWED_FILE_TYPES.contains(&content_type.as_str()) {
-            return Err((StatusCode::BAD_REQUEST, format!("File type {content_type} not allowed")));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("File type {content_type} not allowed"),
+            ));
         }
 
-        let data = field.bytes().await.map_err(|e| {
-            (StatusCode::BAD_REQUEST, format!("Read error: {e}"))
-        })?;
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Read error: {e}")))?;
 
         if data.len() > MAX_FILE_SIZE {
-            return Err((StatusCode::BAD_REQUEST, format!("File too large (max {}MB)", MAX_FILE_SIZE / 1024 / 1024)));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("File too large (max {}MB)", MAX_FILE_SIZE / 1024 / 1024),
+            ));
         }
 
         let id = Uuid::new_v4().to_string();
@@ -79,25 +97,35 @@ pub async fn upload_file(
 
         tokio::fs::write(format!("./uploads/{disk_filename}"), &data)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Write error: {e}"),
+                )
+            })?;
 
-        sqlx::query("INSERT INTO uploads (id, user_id, filename, mime_type, size) VALUES (?, ?, ?, ?, ?)")
-            .bind(&id)
-            .bind(&claims.sub)
-            .bind(&filename)
-            .bind(&content_type)
-            .bind(data.len() as i64)
-            .execute(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        sqlx::query(
+            "INSERT INTO uploads (id, user_id, filename, mime_type, size) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&claims.sub)
+        .bind(&filename)
+        .bind(&content_type)
+        .bind(data.len() as i64)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-        return Ok((StatusCode::CREATED, axum::Json(serde_json::json!({
-            "id": id,
-            "filename": filename,
-            "mime_type": content_type,
-            "size": data.len(),
-            "url": format!("/api/uploads/{id}")
-        }))));
+        return Ok((
+            StatusCode::CREATED,
+            axum::Json(serde_json::json!({
+                "id": id,
+                "filename": filename,
+                "mime_type": content_type,
+                "size": data.len(),
+                "url": format!("/api/uploads/{id}")
+            })),
+        ));
     }
 
     Err((StatusCode::BAD_REQUEST, "No file field found".into()))
@@ -145,9 +173,11 @@ pub async fn upload_avatar(
 ) -> Result<axum::Json<serde_json::Value>, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (StatusCode::BAD_REQUEST, format!("Multipart error: {e}"))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Multipart error: {e}")))?
+    {
         let field_name = field.name().unwrap_or("").to_string();
         if field_name != "avatar" && field_name != "file" {
             continue;
@@ -155,12 +185,16 @@ pub async fn upload_avatar(
 
         let content_type = field.content_type().unwrap_or("").to_string();
         if !ALLOWED_IMAGE_TYPES.contains(&content_type.as_str()) {
-            return Err((StatusCode::BAD_REQUEST, "Avatar must be PNG, JPEG, GIF, or WebP".into()));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                "Avatar must be PNG, JPEG, GIF, or WebP".into(),
+            ));
         }
 
-        let data = field.bytes().await.map_err(|e| {
-            (StatusCode::BAD_REQUEST, format!("Read error: {e}"))
-        })?;
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Read error: {e}")))?;
 
         if data.len() > MAX_AVATAR_SIZE {
             return Err((StatusCode::BAD_REQUEST, "Avatar too large (max 8MB)".into()));
@@ -172,17 +206,24 @@ pub async fn upload_avatar(
 
         tokio::fs::write(format!("./uploads/{disk_filename}"), &data)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")))?;
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Write error: {e}"),
+                )
+            })?;
 
-        sqlx::query("INSERT INTO uploads (id, user_id, filename, mime_type, size) VALUES (?, ?, ?, ?, ?)")
-            .bind(&id)
-            .bind(&claims.sub)
-            .bind("avatar")
-            .bind(&content_type)
-            .bind(data.len() as i64)
-            .execute(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        sqlx::query(
+            "INSERT INTO uploads (id, user_id, filename, mime_type, size) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&id)
+        .bind(&claims.sub)
+        .bind("avatar")
+        .bind(&content_type)
+        .bind(data.len() as i64)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
         let avatar_url = format!("/api/uploads/{id}");
 
@@ -193,9 +234,7 @@ pub async fn upload_avatar(
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-        return Ok(axum::Json(serde_json::json!({
-            "avatar_url": avatar_url
-        })));
+        return Ok(axum::Json(serde_json::json!({ "avatar_url": avatar_url })));
     }
 
     Err((StatusCode::BAD_REQUEST, "No file found".into()))

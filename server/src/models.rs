@@ -23,6 +23,7 @@ pub struct Message {
     pub channel_id: String,
     pub user_id: String,
     pub user_name: String,
+    pub avatar_url: Option<String>,
     pub content: String,
     pub created_at: String,
 }
@@ -33,6 +34,131 @@ pub struct InviteCode {
     pub created_at: String,
     pub uses: i64,
     pub max_uses: Option<i64>,
+}
+
+// ─── Permissions ───
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct Permissions: i64 {
+        // General
+        const VIEW_CHANNELS      = 1 << 0;  // 1
+        const MANAGE_CHANNELS    = 1 << 1;  // 2
+        const MANAGE_ROLES       = 1 << 2;  // 4
+        const MANAGE_EMOJIS      = 1 << 3;  // 8
+        const VIEW_AUDIT_LOG     = 1 << 4;  // 16
+        const MANAGE_SERVER      = 1 << 5;  // 32
+        const CREATE_INVITE      = 1 << 6;  // 64
+        const KICK_MEMBERS       = 1 << 7;  // 128
+        const BAN_MEMBERS        = 1 << 8;  // 256
+        
+        // Text Channels
+        const SEND_MESSAGES      = 1 << 9;  // 512
+        const SEND_FILES         = 1 << 10; // 1024
+        const EMBED_LINKS        = 1 << 11; // 2048
+        const ADD_REACTIONS      = 1 << 12; // 4096
+        const USE_EMOJIS         = 1 << 13; // 8192
+        const MANAGE_MESSAGES    = 1 << 14; // 16384
+        const READ_HISTORY       = 1 << 15; // 32768
+        const MENTION_EVERYONE   = 1 << 16; // 65536
+        
+        // Voice Channels
+        const CONNECT            = 1 << 17; // 131072
+        const SPEAK              = 1 << 18; // 262144
+        const VIDEO              = 1 << 19; // 524288
+        const MUTE_MEMBERS       = 1 << 20; // 1048576
+        const DEAFEN_MEMBERS     = 1 << 21; // 2097152
+        const MOVE_MEMBERS       = 1 << 22; // 4194304
+        const USE_VOICE_ACTIVITY = 1 << 23; // 8388608
+        const PRIORITY_SPEAKER   = 1 << 24; // 16777216
+        
+        // Advanced
+        const ADMINISTRATOR      = 1 << 30; // 1073741824
+    }
+}
+
+impl Permissions {
+    pub fn default_admin() -> Self {
+        Self::ADMINISTRATOR
+    }
+    
+    pub fn default_moderator() -> Self {
+        Self::VIEW_CHANNELS
+            | Self::MANAGE_CHANNELS
+            | Self::CREATE_INVITE
+            | Self::KICK_MEMBERS
+            | Self::SEND_MESSAGES
+            | Self::SEND_FILES
+            | Self::EMBED_LINKS
+            | Self::ADD_REACTIONS
+            | Self::USE_EMOJIS
+            | Self::MANAGE_MESSAGES
+            | Self::READ_HISTORY
+            | Self::CONNECT
+            | Self::SPEAK
+            | Self::VIDEO
+            | Self::MUTE_MEMBERS
+            | Self::USE_VOICE_ACTIVITY
+    }
+    
+    pub fn default_member() -> Self {
+        Self::VIEW_CHANNELS
+            | Self::CREATE_INVITE
+            | Self::SEND_MESSAGES
+            | Self::SEND_FILES
+            | Self::EMBED_LINKS
+            | Self::ADD_REACTIONS
+            | Self::USE_EMOJIS
+            | Self::READ_HISTORY
+            | Self::CONNECT
+            | Self::SPEAK
+            | Self::VIDEO
+            | Self::USE_VOICE_ACTIVITY
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Role {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub position: i64,
+    pub permissions: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserRole {
+    pub user_id: String,
+    pub role_id: String,
+    pub assigned_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleWithMembers {
+    #[serde(flatten)]
+    pub role: Role,
+    pub member_count: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateRoleRequest {
+    pub name: String,
+    pub color: Option<String>,
+    pub permissions: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateRoleRequest {
+    pub name: Option<String>,
+    pub color: Option<String>,
+    pub permissions: Option<i64>,
+    pub position: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AssignRoleRequest {
+    pub user_id: String,
+    pub role_id: String,
 }
 
 // ─── API Types ───
@@ -138,17 +264,33 @@ pub enum WsClientMessage {
         from_user_id: String,
         candidate: String,
     },
+    #[serde(rename = "voice_talking")]
+    VoiceTalking {
+        channel_id: String,
+        user_id: String,
+        talking: bool,
+    },
+    #[serde(rename = "voice_status_update")]
+    VoiceStatusUpdate {
+        channel_id: String,
+        user_id: String,
+        is_muted: bool,
+        is_deafened: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WsServerMessage {
+    #[serde(rename = "identity")]
+    Identity { user_id: String },
     #[serde(rename = "new_message")]
     NewMessage {
         id: String,
         channel_id: String,
         user_id: String,
         user_name: String,
+        avatar_url: Option<String>,
         content: String,
         created_at: String,
     },
@@ -186,20 +328,36 @@ pub enum WsServerMessage {
     #[serde(rename = "voice_offer")]
     VoiceOffer {
         channel_id: String,
+        target_user_id: String,
         from_user_id: String,
         sdp: String,
     },
     #[serde(rename = "voice_answer")]
     VoiceAnswer {
         channel_id: String,
+        target_user_id: String,
         from_user_id: String,
         sdp: String,
     },
     #[serde(rename = "ice_candidate")]
     IceCandidate {
         channel_id: String,
+        target_user_id: String,
         from_user_id: String,
         candidate: String,
+    },
+    #[serde(rename = "voice_talking")]
+    VoiceTalking {
+        channel_id: String,
+        user_id: String,
+        talking: bool,
+    },
+    #[serde(rename = "voice_status_update")]
+    VoiceStatusUpdate {
+        channel_id: String,
+        user_id: String,
+        is_muted: bool,
+        is_deafened: bool,
     },
 }
 
@@ -207,6 +365,8 @@ pub enum WsServerMessage {
 pub struct VoicePeer {
     pub user_id: String,
     pub user_name: String,
+    pub is_muted: bool,
+    pub is_deafened: bool,
 }
 
 // ─── Connection Token ───

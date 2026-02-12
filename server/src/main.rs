@@ -24,15 +24,28 @@ async fn main() {
 
     let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "sivycord.db".to_string());
 
-    // JWT secret: from env or generate random
+    // JWT secret: from env, from file, or generate and save to file
     let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
+        let secret_path = std::path::Path::new("jwt_secret.key");
+        if let Ok(saved) = std::fs::read_to_string(secret_path) {
+            let saved = saved.trim().to_string();
+            if !saved.is_empty() {
+                tracing::info!("Loaded JWT secret from jwt_secret.key");
+                return saved;
+            }
+        }
+        // Generate new secret and persist it
         use rand::Rng;
         let secret: String = rand::thread_rng()
             .sample_iter(&rand::distributions::Alphanumeric)
             .take(64)
             .map(char::from)
             .collect();
-        tracing::info!("Generated random JWT secret (set JWT_SECRET env for persistence)");
+        if let Err(e) = std::fs::write(secret_path, &secret) {
+            tracing::warn!("Could not save JWT secret to file: {e}");
+        } else {
+            tracing::info!("Generated and saved JWT secret to jwt_secret.key");
+        }
         secret
     });
 
@@ -67,6 +80,7 @@ async fn main() {
         // Uploads
         .route("/api/upload", post(routes::uploads::upload_file))
         .route("/api/uploads/{id}", get(routes::uploads::serve_upload))
+        .route("/api/uploads/emoji/{name}", get(routes::emoji::serve_emoji_by_name))
         .route("/api/me/avatar", put(routes::uploads::upload_avatar))
         // Emoji
         .route("/api/emoji", get(routes::emoji::list_emoji))
@@ -78,11 +92,17 @@ async fn main() {
         .route(
             "/api/channels/{channel_id}/messages",
             get(routes::messages::get_messages),
-        )
-        .route("/api/invites", post(routes::invite::create_invite))
+        )        .route("/api/invites", post(routes::invite::create_invite))
         .route("/api/join", post(routes::invite::join_server))
         .route("/api/join-direct", post(routes::invite::join_direct))
-        .route("/api/server", get(routes::server_info::get_server_info))
+        .route("/api/server", get(routes::server_info::get_server_info))        // Roles
+        .route("/api/roles", get(routes::roles::list_roles))
+        .route("/api/roles", post(routes::roles::create_role))
+        .route("/api/roles/{role_id}", put(routes::roles::update_role))
+        .route("/api/roles/{role_id}", delete(routes::roles::delete_role))
+        .route("/api/roles/assign", post(routes::roles::assign_role))
+        .route("/api/roles/{user_id}/{role_id}", delete(routes::roles::remove_role))
+        .route("/api/users/{user_id}/roles", get(routes::roles::get_user_roles))
         // WebSocket
         .route("/ws", get(ws::ws_handler))
         // Middleware

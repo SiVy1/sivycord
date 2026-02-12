@@ -2,6 +2,10 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use std::path::Path;
 
 pub async fn init_pool(db_path: &str) -> SqlitePool {
+    let abs_path = std::fs::canonicalize(db_path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(db_path));
+    tracing::info!("Database absolute path: {:?}", abs_path);
+
     // Ensure parent directory exists
     if let Some(parent) = Path::new(db_path).parent() {
         tokio::fs::create_dir_all(parent).await.ok();
@@ -22,31 +26,10 @@ pub async fn init_pool(db_path: &str) -> SqlitePool {
 }
 
 async fn run_migrations(pool: &SqlitePool) {
-    let migrations = [
-        include_str!("../migrations/001_initial.sql"),
-        include_str!("../migrations/002_voice_channels.sql"),
-    ];
-
-    for migration_sql in &migrations {
-        // Strip comment lines first, then split by semicolons
-        let cleaned: String = migration_sql
-            .lines()
-            .filter(|line| !line.trim_start().starts_with("--"))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        for statement in cleaned.split(';') {
-            let stmt = statement.trim();
-            if !stmt.is_empty() {
-                sqlx::query(stmt)
-                    .execute(pool)
-                    .await
-                    .unwrap_or_else(|e| {
-                        tracing::warn!("Migration statement skipped: {e}");
-                        Default::default()
-                    });
-            }
-        }
+    if let Err(e) = sqlx::migrate!("./migrations").run(pool).await {
+        tracing::error!("Database migration failed: {}", e);
+        // We probably shouldn't continue if migrations failed
+        panic!("Database migration failed: {}", e);
     }
 
     tracing::info!("Database migrations applied successfully");

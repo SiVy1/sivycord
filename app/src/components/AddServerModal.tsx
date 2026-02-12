@@ -161,52 +161,57 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md mx-4 bg-bg-secondary border border-border rounded-2xl p-6"
+        className="w-full max-w-md mx-4 bg-bg-secondary border border-border/50 rounded-3xl p-8 shadow-2xl relative overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-lg font-semibold text-text-primary mb-4">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-accent/0 via-accent to-accent/0 opacity-50" />
+
+        <h2 className="text-2xl font-bold text-text-primary mb-2 tracking-tight">
           Join a server
         </h2>
+        <p className="text-sm text-text-secondary mb-6">
+          Connect to a SyncSpace instance via address or token.
+        </p>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-bg-input rounded-lg p-1 mb-5">
+        <div className="flex gap-1 bg-bg-input/50 border border-border/50 rounded-xl p-1 mb-6">
           <button
             onClick={() => {
               setTab("direct");
               setError("");
             }}
-            className={`flex-1 py-2 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+            className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all cursor-pointer ${
               tab === "direct"
-                ? "bg-bg-hover text-text-primary"
+                ? "bg-bg-surface text-accent shadow-sm"
                 : "text-text-muted hover:text-text-secondary"
             }`}
           >
-            Direct Connect
+            Direct
           </button>
           <button
             onClick={() => {
               setTab("token");
               setError("");
             }}
-            className={`flex-1 py-2 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+            className={`flex-1 py-2 text-xs font-bold uppercase tracking-widest rounded-lg transition-all cursor-pointer ${
               tab === "token"
-                ? "bg-bg-hover text-text-primary"
+                ? "bg-bg-surface text-accent shadow-sm"
                 : "text-text-muted hover:text-text-secondary"
             }`}
           >
-            Invite Token
+            Token
           </button>
         </div>
 
         {tab === "direct" ? (
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-text-secondary mb-1 block">
-                Host
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest ml-1">
+                Server Address
               </label>
               <input
                 type="text"
@@ -215,15 +220,15 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
                   setHost(e.target.value);
                   setError("");
                 }}
-                placeholder="localhost or IP"
+                placeholder="e.g. sync.example.com"
                 maxLength={253}
                 autoFocus
                 onKeyDown={(e) => e.key === "Enter" && handleDirectJoin()}
-                className="w-full px-4 py-2.5 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent transition-colors"
+                className="w-full px-4 py-3 bg-bg-input border border-border/50 rounded-xl text-text-primary placeholder:text-text-muted/50 text-sm outline-none focus:border-accent ring-0 focus:ring-4 focus:ring-accent/5 transition-all"
               />
             </div>
-            <div>
-              <label className="text-xs text-text-secondary mb-1 block">
+            <div className="space-y-1.5">
+              <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest ml-1">
                 Port
               </label>
               <input
@@ -237,37 +242,48 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
                 min={1}
                 max={65535}
                 onKeyDown={(e) => e.key === "Enter" && handleDirectJoin()}
-                className="w-full px-4 py-2.5 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent transition-colors"
+                className="w-full px-4 py-3 bg-bg-input border border-border/50 rounded-xl text-text-primary placeholder:text-text-muted/50 text-sm outline-none focus:border-accent ring-0 focus:ring-4 focus:ring-accent/5 transition-all"
               />
             </div>
           </div>
         ) : (
-          <textarea
-            value={token}
-            onChange={(e) => {
-              setToken(e.target.value);
-              setError("");
-            }}
-            placeholder="Paste invite token here..."
-            rows={3}
-            autoFocus
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleTokenJoin();
-              }
-            }}
-            className="w-full px-4 py-3 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent transition-colors resize-none font-mono"
-          />
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest ml-1">
+              Invite Token
+            </label>
+            <textarea
+              value={token}
+              onChange={(e) => {
+                setToken(e.target.value);
+                setError("");
+              }}
+              placeholder="Paste your invite token here..."
+              rows={4}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleTokenJoin();
+                }
+              }}
+              className="w-full px-4 py-3 bg-bg-input border border-border/50 rounded-xl text-text-primary placeholder:text-text-muted/50 text-sm outline-none focus:border-accent ring-0 focus:ring-4 focus:ring-accent/5 transition-all resize-none font-mono"
+            />
+          </div>
         )}
 
-        {error && <p className="text-danger text-xs mt-2">{error}</p>}
+        {error && (
+          <div className="bg-danger/10 border border-danger/20 rounded-lg p-3 mt-4">
+            <p className="text-danger text-xs font-medium text-center">
+              {error}
+            </p>
+          </div>
+        )}
 
-        <div className="flex gap-3 mt-5">
+        <div className="flex gap-3 mt-8">
           <button
             onClick={onClose}
             disabled={loading}
-            className="flex-1 py-2.5 border border-border rounded-xl text-sm text-text-secondary hover:bg-bg-hover transition-colors cursor-pointer disabled:opacity-40"
+            className="flex-1 py-3.5 border border-border/50 rounded-xl text-sm font-bold text-text-secondary hover:bg-bg-surface hover:text-text-primary transition-all cursor-pointer disabled:opacity-40"
           >
             Cancel
           </button>
@@ -276,9 +292,9 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
             disabled={
               loading || (tab === "token" ? !token.trim() : !host.trim())
             }
-            className="flex-1 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors cursor-pointer"
+            className="flex-1 py-3.5 bg-accent hover:bg-accent-hover disabled:bg-bg-surface disabled:text-text-muted text-white text-sm font-bold rounded-xl shadow-lg shadow-accent/20 transition-all cursor-pointer active:scale-[0.98]"
           >
-            {loading ? "Connecting..." : "Connect"}
+            {loading ? "Connecting..." : "Join Server"}
           </button>
         </div>
       </div>

@@ -15,15 +15,15 @@ export function SetupScreen() {
 
   return (
     <div className="h-full flex items-center justify-center bg-bg-primary">
-      <div className="w-full max-w-sm px-6">
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-4">
+      <div className="w-full max-w-sm px-8 py-10 bg-bg-secondary border border-border rounded-3xl shadow-2xl">
+        <div className="text-center mb-10">
+          <div className="w-20 h-20 rounded-2xl bg-accent/15 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-accent/5">
             <svg
-              className="w-8 h-8 text-accent"
+              className="w-10 h-10 text-accent transition-transform hover:scale-110 duration-300"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
-              strokeWidth={1.5}
+              strokeWidth={1.75}
             >
               <path
                 strokeLinecap="round"
@@ -32,30 +32,35 @@ export function SetupScreen() {
               />
             </svg>
           </div>
-          <h1 className="text-2xl font-semibold text-text-primary mb-2">
-            Welcome to SiVyCord
+          <h1 className="text-3xl font-bold text-text-primary mb-3 tracking-tight">
+            SyncSpace
           </h1>
-          <p className="text-sm text-text-secondary">
-            Choose a display name to get started
+          <p className="text-base text-text-secondary font-medium">
+            Welcome! How should we call you?
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your display name"
-            maxLength={32}
-            autoFocus
-            className="w-full px-4 py-3 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent transition-colors"
-          />
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-text-muted uppercase tracking-wider ml-1">
+              Display Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter your name..."
+              maxLength={32}
+              autoFocus
+              className="w-full px-5 py-3.5 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent ring-0 focus:ring-2 focus:ring-accent/20 transition-all"
+            />
+          </div>
           <button
             type="submit"
             disabled={name.trim().length < 2}
-            className="w-full py-3 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium text-sm rounded-xl transition-colors cursor-pointer"
+            className="w-full py-4 bg-accent hover:bg-accent-hover disabled:bg-bg-surface disabled:text-text-muted disabled:cursor-not-allowed text-white font-semibold text-sm rounded-xl shadow-lg shadow-accent/20 active:scale-[0.98] transition-all cursor-pointer"
           >
-            Continue
+            Get Started
           </button>
         </form>
       </div>

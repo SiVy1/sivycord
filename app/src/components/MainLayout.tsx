@@ -1,10 +1,48 @@
-import { ServerSidebar } from "./ServerSidebar";
-import { ChannelSidebar } from "./ChannelSidebar";
-import { ChatArea } from "./ChatArea";
+import { useEffect } from "react";
+import { ServerSidebar } from "./ServerSidebar.tsx";
+import { ChannelSidebar } from "./ChannelSidebar.tsx";
+import { ChatArea } from "./ChatArea.tsx";
 import { useStore } from "../store";
 
 export function MainLayout() {
   const activeServerId = useStore((s) => s.activeServerId);
+  const servers = useStore((s) => s.servers);
+  const setCurrentUser = useStore((s) => s.setCurrentUser);
+
+  const activeServer = servers.find((s) => s.id === activeServerId);
+
+  // Auto-fetch profile on server switch if authToken exists
+  useEffect(() => {
+    if (!activeServer || !activeServer.config.authToken) {
+      setCurrentUser(null);
+      return;
+    }
+
+    const fetchProfile = async () => {
+      try {
+        const res = await fetch(
+          `http://${activeServer.config.host}:${activeServer.config.port}/api/me`,
+          {
+            headers: {
+              Authorization: `Bearer ${activeServer.config.authToken}`,
+            },
+          },
+        );
+        if (res.ok) {
+          const user = await res.json();
+          setCurrentUser(user);
+        } else {
+          // Token might be invalid
+          setCurrentUser(null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch profile", err);
+        setCurrentUser(null);
+      }
+    };
+
+    fetchProfile();
+  }, [activeServerId, activeServer?.config.authToken, setCurrentUser]);
 
   return (
     <div className="h-full flex">

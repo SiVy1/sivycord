@@ -18,12 +18,12 @@ export function ServerSidebar() {
             onClick={() => setActiveServer(server.id)}
             title={server.config.serverName || server.config.host}
             className={`
-              group relative w-12 h-12 rounded-2xl flex items-center justify-center text-sm font-semibold
-              transition-all duration-200 cursor-pointer
+              group relative w-12 h-12 rounded-[18px] flex items-center justify-center text-sm font-bold
+              transition-all duration-300 ease-out cursor-pointer
               ${
                 activeServerId === server.id
-                  ? "bg-accent text-white rounded-xl"
-                  : "bg-bg-surface text-text-secondary hover:bg-bg-hover hover:text-text-primary hover:rounded-xl"
+                  ? "bg-accent text-white rounded-[12px] shadow-lg shadow-accent/20"
+                  : "bg-bg-surface text-text-secondary hover:bg-accent hover:text-white hover:rounded-[12px] hover:shadow-lg hover:shadow-accent/20"
               }
             `}
           >
@@ -31,7 +31,7 @@ export function ServerSidebar() {
 
             {/* Active indicator */}
             {activeServerId === server.id && (
-              <div className="absolute left-[-14px] w-1 h-8 bg-accent rounded-r-full" />
+              <div className="absolute -left-3 w-1.5 h-10 bg-accent rounded-r-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
             )}
           </button>
         ))}
@@ -43,7 +43,7 @@ export function ServerSidebar() {
         <button
           onClick={() => setShowModal(true)}
           title="Add a server"
-          className="w-12 h-12 rounded-2xl bg-bg-surface text-success hover:bg-success hover:text-white flex items-center justify-center transition-all duration-200 hover:rounded-xl cursor-pointer"
+          className="w-12 h-12 rounded-[18px] bg-bg-surface text-success hover:bg-success hover:text-white flex items-center justify-center transition-all duration-300 ease-out hover:rounded-[12px] hover:shadow-lg hover:shadow-success/20 cursor-pointer group"
         >
           <svg
             className="w-5 h-5"

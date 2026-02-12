@@ -56,6 +56,9 @@ async fn handle_socket(
 
     let (client_tx, mut client_rx) = tokio::sync::mpsc::channel::<WsServerMessage>(256);
 
+    // Send identity to client
+    let _ = client_tx.send(WsServerMessage::Identity { user_id: user_id.clone() }).await;
+
     let send_task = tokio::spawn(async move {
         while let Some(msg) = client_rx.recv().await {
             match serde_json::to_string(&msg) {
@@ -97,6 +100,7 @@ async fn handle_socket(
                             let mut rx = tx.subscribe();
                             let client_tx = client_tx.clone();
                             let cid = channel_id.clone();
+                            let uid = user_id.clone();
 
                             tokio::spawn(async move {
                                 while let Ok(msg) = rx.recv().await {
@@ -107,9 +111,11 @@ async fn handle_socket(
                                         WsServerMessage::VoicePeerJoined { channel_id, .. } => channel_id == &cid,
                                         WsServerMessage::VoicePeerLeft { channel_id, .. } => channel_id == &cid,
                                         WsServerMessage::VoiceMembers { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::VoiceOffer { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::VoiceAnswer { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::IceCandidate { channel_id, .. } => channel_id == &cid,
+                                        WsServerMessage::VoiceTalking { channel_id, .. } => channel_id == &cid,
+                                        WsServerMessage::VoiceStatusUpdate { channel_id, .. } => channel_id == &cid,
+                                        WsServerMessage::VoiceOffer { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
+                                        WsServerMessage::VoiceAnswer { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
+                                        WsServerMessage::IceCandidate { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
                                         _ => true,
                                     };
                                     if should_send {
@@ -163,11 +169,24 @@ async fn handle_socket(
                             continue;
                         }
 
+                        let avatar_url: Option<String> = match &auth_user {
+                            Some(claims) => {
+                                // Fetch latest avatar_url from DB
+                                sqlx::query_scalar::<_, Option<String>>("SELECT avatar_url FROM users WHERE id = ?")
+                                    .bind(&claims.sub)
+                                    .fetch_one(&state.db)
+                                    .await
+                                    .unwrap_or(None)
+                            }
+                            None => None,
+                        };
+
                         let broadcast_msg = WsServerMessage::NewMessage {
                             id: msg_id,
                             channel_id: channel_id.clone(),
                             user_id: user_id.clone(),
                             user_name: user_name.clone(),
+                            avatar_url,
                             content,
                             created_at: now,
                         };
@@ -205,12 +224,11 @@ async fn handle_socket(
                                         }
                                         WsServerMessage::VoicePeerLeft { channel_id, .. } => channel_id == &cid,
                                         WsServerMessage::VoiceMembers { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::VoiceOffer { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::VoiceAnswer { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::IceCandidate { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::NewMessage { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::UserJoined { channel_id, .. } => channel_id == &cid,
-                                        WsServerMessage::UserLeft { channel_id, .. } => channel_id == &cid,
+                                        WsServerMessage::VoiceTalking { channel_id, .. } => channel_id == &cid,
+                                        WsServerMessage::VoiceStatusUpdate { channel_id, .. } => channel_id == &cid,
+                                        WsServerMessage::VoiceOffer { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
+                                        WsServerMessage::VoiceAnswer { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
+                                        WsServerMessage::IceCandidate { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
                                         _ => true,
                                     };
                                     if should_send {
@@ -222,7 +240,7 @@ async fn handle_socket(
                             });
                         }
 
-                        let members = state.join_voice(&channel_id, &user_id, &user_name);
+                        let members = state.join_voice(&channel_id, &user_id, &user_name, false, false);
 
                         let _ = client_tx.send(WsServerMessage::VoiceMembers {
                             channel_id: channel_id.clone(),
@@ -244,31 +262,52 @@ async fn handle_socket(
                             user_id: user_id.clone(),
                         });
                     }
-                    Ok(WsClientMessage::VoiceOffer { channel_id, target_user_id: _, from_user_id: _, sdp }) => {
+                    Ok(WsClientMessage::VoiceOffer { channel_id, target_user_id, from_user_id: _, sdp }) => {
                         if sdp.len() > MAX_SDP_LENGTH { continue; }
                         let tx = state.get_channel_tx(&channel_id);
                         let _ = tx.send(WsServerMessage::VoiceOffer {
                             channel_id,
+                            target_user_id,
                             from_user_id: user_id.clone(),
                             sdp,
                         });
                     }
-                    Ok(WsClientMessage::VoiceAnswer { channel_id, target_user_id: _, from_user_id: _, sdp }) => {
+                    Ok(WsClientMessage::VoiceAnswer { channel_id, target_user_id, from_user_id: _, sdp }) => {
                         if sdp.len() > MAX_SDP_LENGTH { continue; }
                         let tx = state.get_channel_tx(&channel_id);
                         let _ = tx.send(WsServerMessage::VoiceAnswer {
                             channel_id,
+                            target_user_id,
                             from_user_id: user_id.clone(),
                             sdp,
                         });
                     }
-                    Ok(WsClientMessage::IceCandidate { channel_id, target_user_id: _, from_user_id: _, candidate }) => {
+                    Ok(WsClientMessage::IceCandidate { channel_id, target_user_id, from_user_id: _, candidate }) => {
                         if candidate.len() > MAX_SDP_LENGTH { continue; }
                         let tx = state.get_channel_tx(&channel_id);
                         let _ = tx.send(WsServerMessage::IceCandidate {
                             channel_id,
+                            target_user_id,
                             from_user_id: user_id.clone(),
                             candidate,
+                        });
+                    }
+                    Ok(WsClientMessage::VoiceTalking { channel_id, user_id: _, talking }) => {
+                        let tx = state.get_channel_tx(&channel_id);
+                        let _ = tx.send(WsServerMessage::VoiceTalking {
+                            channel_id,
+                            user_id: user_id.clone(),
+                            talking,
+                        });
+                    }
+                    Ok(WsClientMessage::VoiceStatusUpdate { channel_id, user_id: _, is_muted, is_deafened }) => {
+                        state.update_voice_status(&channel_id, &user_id, is_muted, is_deafened);
+                        let tx = state.get_channel_tx(&channel_id);
+                        let _ = tx.send(WsServerMessage::VoiceStatusUpdate {
+                            channel_id,
+                            user_id: user_id.clone(),
+                            is_muted,
+                            is_deafened,
                         });
                     }
 

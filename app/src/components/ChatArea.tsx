@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useStore } from "../store";
+import { EmojiPicker } from "./EmojiPicker";
+import { ScreenShareView } from "./ScreenShareView";
 import type { WsClientMessage, WsServerMessage } from "../types";
 
 const MAX_MESSAGE_LENGTH = 2000;
@@ -16,6 +18,9 @@ export function ChatArea() {
   const setMessages = useStore((s) => s.setMessages);
   const addMessage = useStore((s) => s.addMessage);
   const displayName = useStore((s) => s.displayName);
+  const screenShares = useStore((s) => s.screenShares);
+  const removeScreenShare = useStore((s) => s.removeScreenShare);
+  const voiceMembers = useStore((s) => s.voiceMembers);
 
   const [input, setInput] = useState("");
   const [wsStatus, setWsStatus] = useState<
@@ -23,6 +28,7 @@ export function ChatArea() {
   >("disconnected");
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [showEmoji, setShowEmoji] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const prevChannelRef = useRef<string | null>(null);
@@ -49,7 +55,7 @@ export function ChatArea() {
     const controller = new AbortController();
     fetch(
       `http://${host}:${port}/api/channels/${activeChannelId}/messages?limit=50`,
-      { signal: controller.signal },
+      { signal: controller.signal }
     )
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -112,7 +118,6 @@ export function ChatArea() {
         prevChannelRef.current = activeChannelId;
       }
     };
-
     ws.onmessage = (event) => {
       try {
         const data: WsServerMessage = JSON.parse(event.data);
@@ -125,12 +130,13 @@ export function ChatArea() {
             channelId: data.channel_id,
             userId: data.user_id,
             userName: data.user_name || "Unknown",
+            avatarUrl: data.avatar_url,
             content: data.content || "",
             createdAt: data.created_at || "",
           });
         }
-      } catch {
-        // Ignore malformed JSON
+      } catch (err) {
+        console.error("Failed to parse WS message:", err);
       }
     };
 
@@ -147,7 +153,6 @@ export function ChatArea() {
       }
     };
   }, [activeServer?.id, activeChannelId, addMessage]);
-
   useEffect(() => {
     connectWs();
     return () => {
@@ -159,7 +164,7 @@ export function ChatArea() {
       }
       setWsStatus("disconnected");
     };
-  }, [activeServer?.id]);
+  }, [connectWs]);
 
   // Switch channel subscription
   useEffect(() => {
@@ -171,11 +176,11 @@ export function ChatArea() {
         JSON.stringify({
           type: "leave_channel",
           channel_id: prevChannelRef.current,
-        }),
+        })
       );
     }
     ws.send(
-      JSON.stringify({ type: "join_channel", channel_id: activeChannelId }),
+      JSON.stringify({ type: "join_channel", channel_id: activeChannelId })
     );
     prevChannelRef.current = activeChannelId;
   }, [activeChannelId]);
@@ -206,8 +211,10 @@ export function ChatArea() {
 
         // Send message with file link
         const fileUrl = `http://${host}:${port}${data.url}`;
-        const isImage = data.mime_type?.startsWith("image/");
-        const content = isImage
+        const isMedia =
+          data.mime_type?.startsWith("image/") ||
+          data.mime_type?.startsWith("video/");
+        const content = isMedia
           ? `[${data.filename}](${fileUrl})`
           : `📎 [${data.filename}](${fileUrl}) (${formatFileSize(data.size)})`;
 
@@ -231,7 +238,7 @@ export function ChatArea() {
         setUploading(false);
       }
     },
-    [activeServer, activeChannelId, displayName, isAuthenticated],
+    [activeServer, activeChannelId, displayName, isAuthenticated]
   );
 
   const handleDrop = useCallback(
@@ -241,7 +248,7 @@ export function ChatArea() {
       const file = e.dataTransfer.files[0];
       if (file) uploadFile(file);
     },
-    [uploadFile],
+    [uploadFile]
   );
 
   const handleSend = useCallback(() => {
@@ -295,39 +302,41 @@ export function ChatArea() {
       onDrop={handleDrop}
     >
       {/* Channel header */}
-      <div className="h-12 flex items-center px-4 border-b border-border gap-2">
-        <span className="text-text-muted">#</span>
-        <h3 className="text-sm font-semibold text-text-primary">
+      <div className="h-14 flex items-center px-6 border-b border-border/50 gap-3 bg-bg-primary/80 backdrop-blur-md sticky top-0 z-10">
+        <span className="text-xl font-medium text-text-muted">#</span>
+        <h3 className="text-sm font-bold text-text-primary tracking-tight">
           {activeChannel?.name || "channel"}
         </h3>
         {activeChannel?.description && (
           <>
-            <div className="w-px h-5 bg-border mx-1" />
-            <span className="text-xs text-text-muted truncate">
+            <div className="w-px h-4 bg-border/50 mx-1" />
+            <span className="text-xs text-text-muted truncate max-w-md">
               {activeChannel.description}
             </span>
           </>
         )}
-        <div className="ml-auto flex items-center gap-1.5">
-          <div
-            className={`w-1.5 h-1.5 rounded-full ${
-              wsStatus === "connected"
-                ? "bg-success"
-                : wsStatus === "connecting"
+        <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-2 bg-bg-secondary px-2.5 py-1 rounded-full border border-border/50">
+            <div
+              className={`w-2 h-2 rounded-full ${
+                wsStatus === "connected"
+                  ? "bg-success shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                  : wsStatus === "connecting"
                   ? "bg-yellow-400 animate-pulse"
-                  : "bg-danger"
-            }`}
-          />
-          <span className="text-[10px] text-text-muted">
-            {wsStatus === "connected"
-              ? "Connected"
-              : wsStatus === "connecting"
-                ? "Connecting..."
+                  : "bg-danger shadow-[0_0_8px_rgba(239,68,68,0.5)]"
+              }`}
+            />
+            <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
+              {wsStatus === "connected"
+                ? "Online"
+                : wsStatus === "connecting"
+                ? "Connecting"
                 : "Offline"}
-          </span>
+            </span>
+          </div>
           {!isAuthenticated && (
-            <span className="text-[10px] text-yellow-400 ml-2">
-              Guest (read-only)
+            <span className="text-[10px] font-bold text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20 uppercase tracking-widest">
+              Guest
             </span>
           )}
         </div>
@@ -342,6 +351,19 @@ export function ChatArea() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
+        {/* Remote Screen Shares */}
+        {Array.from(screenShares.entries()).map(([uid, stream]) => {
+          const m = voiceMembers.find((v) => v.user_id === uid);
+          return (
+            <ScreenShareView
+              key={uid}
+              stream={stream}
+              userName={m?.user_name || "Unknown"}
+              onClose={() => removeScreenShare(uid)}
+            />
+          );
+        })}
+
         {messages.length === 0 && (
           <div className="text-center py-12">
             <p className="text-text-muted text-sm">
@@ -351,25 +373,37 @@ export function ChatArea() {
         )}
         {messages.map((msg, i) => {
           const showHeader = i === 0 || messages[i - 1].userId !== msg.userId;
+
+          // Try to find member for avatar (fallback to msg.avatarUrl)
+          const avatarUrl = msg.avatarUrl;
+
           return (
             <div key={msg.id} className={`group ${showHeader ? "mt-3" : ""}`}>
               {showHeader && (
-                <div className="flex items-center gap-2 mb-0.5">
-                  {/* Avatar placeholder */}
-                  <div className="w-8 h-8 rounded-full bg-bg-tertiary flex items-center justify-center text-xs font-medium text-text-secondary flex-shrink-0">
-                    {(msg.userName || "?")[0]?.toUpperCase()}
-                  </div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-sm font-semibold text-text-primary">
+                <div className="flex items-center gap-3 mb-1">
+                  {/* Avatar */}
+                  {avatarUrl ? (
+                    <img
+                      src={`http://${activeServer?.config.host}:${activeServer?.config.port}${avatarUrl}`}
+                      className="w-10 h-10 rounded-xl object-cover border border-border/50 shadow-sm shrink-0"
+                      alt={msg.userName}
+                    />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-bg-surface flex items-center justify-center text-sm font-bold text-accent shadow-sm flex-shrink-0 border border-border/50">
+                      {(msg.userName || "?")[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex items-baseline gap-2.5">
+                    <span className="text-sm font-bold text-text-primary tracking-tight">
                       {msg.userName || "Unknown"}
                     </span>
-                    <span className="text-[10px] text-text-muted">
+                    <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
                       {formatTime(msg.createdAt)}
                     </span>
                   </div>
                 </div>
               )}
-              <div className="pl-10 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-hover/30 rounded px-2 py-0.5 -mx-2 break-words whitespace-pre-wrap">
+              <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
                 <MessageContent content={msg.content} server={activeServer!} />
               </div>
             </div>
@@ -380,13 +414,24 @@ export function ChatArea() {
 
       {/* Input */}
       <div className="px-4 pb-4">
-        <div className="bg-bg-input border border-border rounded-xl flex items-end">
+        <div className="relative">
+          {showEmoji && activeServer && (
+            <EmojiPicker
+              serverHost={activeServer.config.host}
+              serverPort={activeServer.config.port}
+              authToken={activeServer.config.authToken}
+              onSelect={(e) => setInput((prev) => prev + e)}
+              onClose={() => setShowEmoji(false)}
+            />
+          )}
+        </div>
+        <div className="bg-bg-secondary border border-border/50 rounded-2xl flex items-end shadow-lg focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all">
           {/* File upload button */}
           {isAuthenticated && (
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading || wsStatus !== "connected"}
-              className="px-3 py-3 text-text-muted hover:text-text-primary transition-colors cursor-pointer disabled:opacity-40"
+              className="p-3 text-text-muted hover:text-accent transition-colors cursor-pointer disabled:opacity-40"
               title="Upload file"
             >
               <svg
@@ -394,7 +439,7 @@ export function ChatArea() {
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
-                strokeWidth={2}
+                strokeWidth={2.5}
               >
                 <path
                   strokeLinecap="round"
@@ -424,26 +469,51 @@ export function ChatArea() {
               !isAuthenticated
                 ? "Log in to send messages"
                 : wsStatus !== "connected"
-                  ? "Reconnecting to server..."
-                  : `Message #${activeChannel?.name || "channel"}`
+                ? "Reconnecting..."
+                : `Message #${activeChannel?.name || "channel"}`
             }
             disabled={wsStatus !== "connected" || !isAuthenticated}
             rows={1}
-            className="flex-1 bg-transparent resize-none px-4 py-3 text-sm text-text-primary placeholder:text-text-muted outline-none disabled:opacity-50"
+            className="flex-1 bg-transparent resize-none px-4 py-3.5 text-sm text-text-primary placeholder:text-text-muted outline-none disabled:opacity-50"
           />
+          {/* Emoji button */}
+          {isAuthenticated && (
+            <button
+              onClick={() => setShowEmoji(!showEmoji)}
+              className={`p-3 transition-colors cursor-pointer ${
+                showEmoji ? "text-accent" : "text-text-muted hover:text-accent"
+              }`}
+              disabled={wsStatus !== "connected"}
+              title="Emoji"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z"
+                />
+              </svg>
+            </button>
+          )}
           <button
             onClick={handleSend}
             disabled={
               !input.trim() || wsStatus !== "connected" || !isAuthenticated
             }
-            className="px-3 py-3 text-accent disabled:text-text-muted transition-colors cursor-pointer"
+            className="p-3 text-accent disabled:text-text-muted hover:scale-110 active:scale-95 transition-all cursor-pointer"
           >
             <svg
-              className="w-5 h-5"
+              className="w-6 h-6"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
-              strokeWidth={2}
+              strokeWidth={2.5}
             >
               <path
                 strokeLinecap="round"
@@ -481,31 +551,58 @@ function MessageContent({
   const { host, port } = server.config;
   const baseUrl = `http://${host}:${port}`;
 
-  // Parse markdown-style links: [text](url)
-  const parts = content.split(/(\[[^\]]+\]\([^)]+\))/g);
+  // Parse markdown-style links: [text](url) AND custom emoji :name:
+  const parts = content.split(/(\[[^\]]+\]\([^)]+\)|:[a-z0-9_]+:)/g);
 
   return (
     <>
       {parts.map((part, i) => {
+        // Link match
         const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (linkMatch) {
           const [, text, url] = linkMatch;
           const fullUrl = url.startsWith("/") ? `${baseUrl}${url}` : url;
-          const isImage =
-            /\.(png|jpe?g|gif|webp)$/i.test(url) ||
-            url.includes("/api/uploads/");
+          const isImage = /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif)$/i.test(url);
+          const isVideo = /\.(mp4|webm|mov|avi|mkv|ogv)$/i.test(url);
+          // Uploads without recognizable extension — try to detect from path
+          const isUpload =
+            url.includes("/api/uploads/") && !text.startsWith("📎");
 
-          if (isImage && !text.startsWith("📎")) {
+          if ((isImage || (isUpload && !isVideo)) && !text.startsWith("📎")) {
             return (
               <div key={i} className="mt-1 mb-1">
                 <img
                   src={fullUrl}
                   alt={text}
-                  className="max-w-xs max-h-64 rounded-lg border border-border cursor-pointer"
+                  className="max-w-xs max-h-64 rounded-lg border border-border cursor-pointer shadow-sm hover:shadow-md transition-shadow"
                   onClick={() => window.open(fullUrl, "_blank")}
                   onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
+                    // If it fails as image, try video fallback
+                    const img = e.target as HTMLImageElement;
+                    const container = img.parentElement;
+                    if (container) {
+                      const video = document.createElement("video");
+                      video.src = fullUrl;
+                      video.controls = true;
+                      video.className =
+                        "max-w-md max-h-80 rounded-lg border border-border shadow-sm";
+                      video.playsInline = true;
+                      container.replaceChild(video, img);
+                    }
                   }}
+                />
+              </div>
+            );
+          }
+
+          if (isVideo) {
+            return (
+              <div key={i} className="mt-1 mb-1">
+                <video
+                  src={fullUrl}
+                  controls
+                  playsInline
+                  className="max-w-md max-h-80 rounded-lg border border-border shadow-sm"
                 />
               </div>
             );
@@ -517,12 +614,37 @@ function MessageContent({
               href={fullUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-accent hover:underline"
+              className="text-accent hover:underline font-medium"
             >
               {text}
             </a>
           );
         }
+
+        // Emoji match
+        const emojiMatch = part.match(/^:([a-z0-9_]+):$/);
+        if (emojiMatch) {
+          return (
+            <img
+              key={i}
+              src={`${baseUrl}/api/uploads/emoji/${emojiMatch[1]}`} // Note: backend needs to map name to path, or we fetch emoji list
+              // Actually, since we don't know the ID here easily without a map,
+              // we might need a better strategy.
+              // For now, let's assume a simplified endpoint /api/emoji/:name/image
+              // OR we can just render the text if we don't have the map.
+              // Given the complexity of fetching the map in every MessageContent,
+              // I'll add a quick emoji map fetch in ChatArea and pass it down.
+              alt={part}
+              title={part}
+              className="inline-block w-6 h-6 object-contain align-bottom mx-0.5"
+              onError={(e) => {
+                // If not found, revert to text
+                (e.target as HTMLElement).outerHTML = part;
+              }}
+            />
+          );
+        }
+
         return <span key={i}>{part}</span>;
       })}
     </>

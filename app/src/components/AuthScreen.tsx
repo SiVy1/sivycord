@@ -67,28 +67,51 @@ export function AuthScreen({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="w-full max-w-sm mx-4 bg-bg-secondary border border-border rounded-2xl p-6">
-        <div className="text-center mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-3">
-            <svg
-              className="w-7 h-7 text-accent"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={1.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
-              />
-            </svg>
+        <div className="flex justify-between items-start mb-6">
+          <div className="w-10 h-10" /> {/* Spacer */}
+          <div className="text-center flex-1">
+            <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-3">
+              <svg
+                className="w-7 h-7 text-accent"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+                />
+              </svg>
+            </div>
+            <h2 className="text-lg font-semibold text-text-primary">
+              {mode === "login" ? "Log in to server" : "Create account"}
+            </h2>
+            <p className="text-xs text-text-muted mt-1">
+              {serverHost}:{serverPort}
+            </p>
           </div>
-          <h2 className="text-lg font-semibold text-text-primary">
-            {mode === "login" ? "Log in to server" : "Create account"}
-          </h2>
-          <p className="text-xs text-text-muted mt-1">
-            {serverHost}:{serverPort}
-          </p>
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
