@@ -2,7 +2,12 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useStore } from "../store";
 import { EmojiPicker } from "./EmojiPicker";
 import { ScreenShareView } from "./ScreenShareView";
-import type { WsClientMessage, WsServerMessage } from "../types";
+import {
+  type WsClientMessage,
+  type WsServerMessage,
+  getApiUrl,
+  getWsUrl,
+} from "../types";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const WS_RECONNECT_DELAY = 2000;
@@ -52,12 +57,12 @@ export function ChatArea() {
     if (!activeServer || !activeChannelId) return;
     seenMsgIds.current.clear();
     const { host, port } = activeServer.config;
+    const baseUrl = getApiUrl(host, port);
 
     const controller = new AbortController();
-    fetch(
-      `http://${host}:${port}/api/channels/${activeChannelId}/messages?limit=50`,
-      { signal: controller.signal },
-    )
+    fetch(`${baseUrl}/api/channels/${activeChannelId}/messages?limit=50`, {
+      signal: controller.signal,
+    })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -91,7 +96,7 @@ export function ChatArea() {
   // WebSocket connection with auto-reconnect
   const connectWs = useCallback(() => {
     if (!activeServer) return;
-    const { host, port } = activeServer.config;
+    const { host, port, authToken } = activeServer.config;
 
     if (wsRef.current) {
       wsRef.current.onclose = null;
@@ -99,10 +104,10 @@ export function ChatArea() {
     }
 
     setWsStatus("connecting");
-    const authToken = activeServer.config.authToken;
+    const wsBaseUrl = getWsUrl(host, port);
     const wsUrl = authToken
-      ? `ws://${host}:${port}/ws?token=${encodeURIComponent(authToken)}`
-      : `ws://${host}:${port}/ws`;
+      ? `${wsBaseUrl}/ws?token=${encodeURIComponent(authToken)}`
+      : `${wsBaseUrl}/ws`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -224,10 +229,11 @@ export function ChatArea() {
       setUploading(true);
       try {
         const { host, port, authToken } = activeServer.config;
+        const baseUrl = getApiUrl(host, port);
         const formData = new FormData();
         formData.append("file", file);
 
-        const res = await fetch(`http://${host}:${port}/api/upload`, {
+        const res = await fetch(`${baseUrl}/api/upload`, {
           method: "POST",
           headers: { Authorization: `Bearer ${authToken}` },
           body: formData,
@@ -237,7 +243,7 @@ export function ChatArea() {
         const data = await res.json();
 
         // Send message with file link
-        const fileUrl = `http://${host}:${port}${data.url}`;
+        const fileUrl = `${baseUrl}${data.url}`;
         const isMedia =
           data.mime_type?.startsWith("image/") ||
           data.mime_type?.startsWith("video/");
@@ -444,7 +450,7 @@ export function ChatArea() {
                   {/* Avatar */}
                   {avatarUrl ? (
                     <img
-                      src={`http://${activeServer?.config.host}:${activeServer?.config.port}${avatarUrl}`}
+                      src={`${getApiUrl(activeServer!.config.host, activeServer!.config.port)}${avatarUrl}`}
                       className="w-10 h-10 rounded-xl object-cover border border-border/50 shadow-sm shrink-0"
                       alt={msg.userName}
                     />
@@ -609,7 +615,7 @@ function MessageContent({
   server: { config: { host: string; port: number } };
 }) {
   const { host, port } = server.config;
-  const baseUrl = `http://${host}:${port}`;
+  const baseUrl = getApiUrl(host, port);
 
   // Parse markdown-style links: [text](url) AND custom emoji :name:
   const parts = content.split(/(\[[^\]]+\]\([^)]+\)|:[a-z0-9_]+:)/g);

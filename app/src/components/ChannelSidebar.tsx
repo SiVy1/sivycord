@@ -4,7 +4,7 @@ import { VoiceStatusPanel } from "./VoiceStatusBar";
 import { useVoice } from "../hooks/useVoice";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AdminPanel } from "./AdminPanel";
-import type { Channel } from "../types";
+import { type Channel, getApiUrl } from "../types";
 
 export function ChannelSidebar() {
   const activeServerId = useStore((s) => s.activeServerId);
@@ -33,7 +33,8 @@ export function ChannelSidebar() {
   const fetchChannels = () => {
     if (!activeServer) return;
     const { host, port } = activeServer.config;
-    fetch(`http://${host}:${port}/api/channels`)
+    const baseUrl = getApiUrl(host, port);
+    fetch(`${baseUrl}/api/channels`)
       .then((r) => r.json())
       .then((data: Channel[]) => {
         setChannels(data);
@@ -257,7 +258,7 @@ export function ChannelSidebar() {
       <div className="h-14 flex items-center px-3 border-t border-border gap-2 bg-bg-surface/50">
         {currentUser?.avatar_url ? (
           <img
-            src={`http://${activeServer?.config.host}:${activeServer?.config.port}${currentUser.avatar_url}`}
+            src={`${getApiUrl(activeServer!.config.host, activeServer!.config.port)}${currentUser.avatar_url}`}
             className="w-8 h-8 rounded-full object-cover border border-border"
             alt={currentUser.display_name}
           />
@@ -333,6 +334,7 @@ function CreateChannelModal({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const baseUrl = getApiUrl(server.config.host, server.config.port);
   const [name, setName] = useState("");
   const [type, setType] = useState<"text" | "voice">("text");
   const [loading, setLoading] = useState(false);
@@ -346,18 +348,15 @@ function CreateChannelModal({
     setError("");
 
     try {
-      const res = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/channels`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: trimmed,
-            description: "",
-            channel_type: type,
-          }),
-        },
-      );
+      const res = await fetch(`${baseUrl}/api/channels`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: trimmed,
+          description: "",
+          channel_type: type,
+        }),
+      });
 
       if (!res.ok) throw new Error("Failed to create channel");
 

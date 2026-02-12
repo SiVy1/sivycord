@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useStore } from "../store";
 import { AuthScreen } from "./AuthScreen";
-import { decodeToken } from "../types";
+import { decodeToken, getApiUrl } from "../types";
 import { v4 as uuidv4 } from "uuid";
 import type { AuthUser } from "../types";
 
@@ -57,7 +57,8 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), CONNECT_TIMEOUT);
 
-      const res = await fetch(`http://${hostVal}:${portVal}/api/server`, {
+      const baseUrl = getApiUrl(hostVal, portVal);
+      const res = await fetch(`${baseUrl}/api/server`, {
         signal: controller.signal,
       });
       clearTimeout(timeout);

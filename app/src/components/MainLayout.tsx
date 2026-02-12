@@ -3,6 +3,7 @@ import { ServerSidebar } from "./ServerSidebar.tsx";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { ChatArea } from "./ChatArea.tsx";
 import { useStore } from "../store";
+import { getApiUrl } from "../types";
 
 export function MainLayout() {
   const activeServerId = useStore((s) => s.activeServerId);
@@ -21,7 +22,7 @@ export function MainLayout() {
     const fetchProfile = async () => {
       try {
         const res = await fetch(
-          `http://${activeServer.config.host}:${activeServer.config.port}/api/me`,
+          `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/me`,
           {
             headers: {
               Authorization: `Bearer ${activeServer.config.authToken}`,

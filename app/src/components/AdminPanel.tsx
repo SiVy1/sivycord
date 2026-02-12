@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useStore } from "../store";
 import type { RoleWithMembers, Role, AuthUser } from "../types";
-import { PERMISSIONS, hasPermission } from "../types";
+import { PERMISSIONS, hasPermission, getApiUrl } from "../types";
 
 interface AdminPanelProps {
   onClose: () => void;
@@ -25,7 +25,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
 
     // Fetch user's roles
     fetch(
-      `http://${activeServer.config.host}:${activeServer.config.port}/api/users/${currentUser.id}/roles`,
+      `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/users/${currentUser.id}/roles`,
     )
       .then((res) => res.json())
       .then((roles: Role[]) => {
@@ -188,7 +188,7 @@ function RolesTab({ server }: { server: any }) {
     setLoading(true);
     try {
       const res = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/roles`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/roles`,
       );
       const data = await res.json();
       setRoles(data);
@@ -301,7 +301,7 @@ function UsersTab({ server }: { server: any }) {
     setLoading(true);
     try {
       const rolesRes = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/roles`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/roles`,
       );
       const rolesData = await rolesRes.json();
       setRoles(rolesData);
@@ -312,7 +312,7 @@ function UsersTab({ server }: { server: any }) {
         for (const user of server.members) {
           try {
             const userRolesRes = await fetch(
-              `http://${server.config.host}:${server.config.port}/api/users/${user.id}/roles`,
+              `${getApiUrl(server.config.host, server.config.port)}/api/users/${user.id}/roles`,
             );
             roleMap.set(user.id, await userRolesRes.json());
           } catch {
@@ -335,7 +335,7 @@ function UsersTab({ server }: { server: any }) {
     if (!confirm("Are you sure you want to kick this user?")) return;
     try {
       await fetch(
-        `http://${server.config.host}:${server.config.port}/api/members/${id}/kick`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/members/${id}/kick`,
         { method: "POST" },
       );
       alert("User kicked!");
@@ -349,7 +349,7 @@ function UsersTab({ server }: { server: any }) {
     if (reason === null) return;
     try {
       await fetch(
-        `http://${server.config.host}:${server.config.port}/api/members/${id}/ban`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/members/${id}/ban`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -473,7 +473,8 @@ function ServerTab({ server }: { server: any }) {
   const updateServerConfig = useStore((s) => s.updateServerConfig);
 
   useEffect(() => {
-    fetch(`http://${server.config.host}:${server.config.port}/api/server`)
+    const baseUrl = getApiUrl(server.config.host, server.config.port);
+    fetch(`${baseUrl}/api/server`)
       .then((res) => res.json())
       .then((data) => {
         setName(data.name);
@@ -484,7 +485,7 @@ function ServerTab({ server }: { server: any }) {
       })
       .catch(console.error);
 
-    fetch(`http://${server.config.host}:${server.config.port}/api/stats`)
+    fetch(`${baseUrl}/api/stats`)
       .then((res) => res.json())
       .then(setStats)
       .catch(console.error);
@@ -492,24 +493,22 @@ function ServerTab({ server }: { server: any }) {
 
   const handleUpdate = async () => {
     setSaving(true);
+    const baseUrl = getApiUrl(server.config.host, server.config.port);
     try {
-      await fetch(
-        `http://${server.config.host}:${server.config.port}/api/server`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${server.config.authToken}`,
-          },
-          body: JSON.stringify({
-            name,
-            description,
-            join_sound_url: joinSoundUrl,
-            leave_sound_url: leaveSoundUrl,
-            sound_chance: soundChance,
-          }),
+      await fetch(`${baseUrl}/api/server`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${server.config.authToken}`,
         },
-      );
+        body: JSON.stringify({
+          name,
+          description,
+          join_sound_url: joinSoundUrl,
+          leave_sound_url: leaveSoundUrl,
+          sound_chance: soundChance,
+        }),
+      });
 
       // Update global state immediately
       if (server.id) {
@@ -541,7 +540,7 @@ function ServerTab({ server }: { server: any }) {
 
     try {
       const res = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/uploads`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/uploads`,
         {
           method: "POST",
           headers: {
@@ -565,7 +564,7 @@ function ServerTab({ server }: { server: any }) {
     if (!url) return;
     const fullUrl = url.startsWith("http")
       ? url
-      : `http://${server.config.host}:${server.config.port}${url}`;
+      : `${getApiUrl(server.config.host, server.config.port)}${url}`;
     const audio = new Audio(fullUrl);
     audio.volume = 0.5;
     audio.play().catch(console.error);
@@ -797,7 +796,7 @@ function InvitesTab({ server }: { server: any }) {
   const fetchInvites = async () => {
     try {
       const res = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/invites`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/invites`,
       );
       setInvites(await res.json());
     } catch (err) {

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import { getApiUrl } from "../types";
 
 interface Emoji {
   id: string;
@@ -30,7 +31,7 @@ export function EmojiPicker({
   const [error, setError] = useState("");
   const ref = useRef<HTMLDivElement>(null);
 
-  const baseUrl = `http://${serverHost}:${serverPort}`;
+  const baseUrl = getApiUrl(serverHost, serverPort);
 
   useEffect(() => {
     fetchEmojis();

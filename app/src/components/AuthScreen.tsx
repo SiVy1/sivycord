@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AuthUser } from "../types";
+import { getApiUrl } from "../types";
 
 type AuthMode = "login" | "register";
 
@@ -39,14 +40,12 @@ export function AuthScreen({
             }
           : { username: username.trim().toLowerCase(), password };
 
-      const res = await fetch(
-        `http://${serverHost}:${serverPort}/api/${endpoint}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
+      const baseUrl = getApiUrl(serverHost, serverPort);
+      const res = await fetch(`${baseUrl}/api/${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
       if (!res.ok) {
         const text = await res.text();

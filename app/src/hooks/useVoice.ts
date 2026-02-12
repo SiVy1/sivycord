@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { useStore } from "../store";
-import type { WsServerMessage } from "../types";
+import { type WsServerMessage, getApiUrl, getWsUrl } from "../types";
 
 // ─── Module-level singleton state ───
 // These live outside the hook so every component calling useVoice()
@@ -93,7 +93,7 @@ function playVoiceSound(type: "join" | "leave") {
         // Ensure absolute URL if it's a relative path from the server
         const fullUrl = serverSoundUrl.startsWith("http")
           ? serverSoundUrl
-          : `http://${activeServer.config.host}:${activeServer.config.port}${serverSoundUrl}`;
+          : `${getApiUrl(activeServer.config.host, activeServer.config.port)}${serverSoundUrl}`;
 
         const audio = new Audio(fullUrl);
         audio.volume = 0.4;
@@ -496,7 +496,7 @@ export function useVoice() {
 
       const { host, port, authToken } = activeServer.config;
       try {
-        const wsUrl = `ws://${host}:${port}/ws${
+        const wsUrl = `${getWsUrl(host, port)}/ws${
           authToken ? `?token=${authToken}` : ""
         }`;
         const socket = new WebSocket(wsUrl);

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useStore } from "../store";
+import { getApiUrl } from "../types";
 import { AuthScreen } from "./AuthScreen";
 
 interface UserSettingsModalProps {
@@ -32,7 +33,7 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
     if (!currentUser || !activeServer || !activeServer.config.authToken) return;
     try {
       const res = await fetch(
-        `http://${activeServer.config.host}:${activeServer.config.port}/api/me`,
+        `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/me`,
         {
           method: "PUT",
           headers: {
@@ -40,7 +41,7 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
             Authorization: `Bearer ${activeServer.config.authToken}`,
           },
           body: JSON.stringify({ display_name: newName.trim() }),
-        }
+        },
       );
       if (res.ok) {
         const updated = await res.json();
@@ -62,14 +63,14 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
 
     try {
       const res = await fetch(
-        `http://${activeServer.config.host}:${activeServer.config.port}/api/me/avatar`,
+        `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/me/avatar`,
         {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${activeServer.config.authToken}`,
           },
           body: formData,
-        }
+        },
       );
       if (res.ok) {
         const updated = await res.json();
@@ -122,7 +123,7 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                 <div className="relative group">
                   {currentUser.avatar_url ? (
                     <img
-                      src={`http://${activeServer?.config.host}:${activeServer?.config.port}${currentUser.avatar_url}`}
+                      src={`${getApiUrl(activeServer!.config.host, activeServer!.config.port)}${currentUser.avatar_url}`}
                       className="w-20 h-20 rounded-3xl object-cover border-2 border-border/50 shadow-md group-hover:border-accent/50 transition-all"
                       alt={currentUser.display_name}
                     />

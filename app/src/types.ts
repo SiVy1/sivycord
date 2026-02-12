@@ -254,3 +254,13 @@ export function decodeToken(encoded: string): ConnectionToken {
   const json = atob(encoded.replace(/-/g, "+").replace(/_/g, "/"));
   return JSON.parse(json);
 }
+
+export function getApiUrl(host: string, port: number): string {
+  const protocol = port === 443 ? "https" : "http";
+  return `${protocol}://${host}:${port}`;
+}
+
+export function getWsUrl(host: string, port: number): string {
+  const protocol = port === 443 ? "wss" : "ws";
+  return `${protocol}://${host}:${port}`;
+}
