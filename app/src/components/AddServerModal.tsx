@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { AuthScreen } from "./AuthScreen";
 import { decodeToken, getApiUrl } from "../types";
@@ -135,16 +136,45 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
   };
 
   const handleDirectJoin = async () => {
-    const h = host.trim();
-    const p = parseInt(port.trim());
+    let h = host.trim();
+    let p = parseInt(port.trim());
+
     if (!h) {
       setError("Host cannot be empty");
       return;
     }
+
+    // Handle host:port syntax
+    if (h.includes(":")) {
+      const [addr, portStr] = h.split(":");
+      h = addr;
+      const parsed = parseInt(portStr);
+      if (!isNaN(parsed)) p = parsed;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      // Try SRV resolution
+      const srv: { host: string; port: number } | null = await invoke(
+        "resolve_srv",
+        { domain: h },
+      );
+      if (srv) {
+        h = srv.host;
+        p = srv.port;
+      }
+    } catch (err) {
+      console.warn("SRV resolution failed or not available:", err);
+    }
+
     if (isNaN(p) || p < 1 || p > 65535) {
       setError("Port must be between 1 and 65535");
+      setLoading(false);
       return;
     }
+
     await joinWithConfig(h, p);
   };
 

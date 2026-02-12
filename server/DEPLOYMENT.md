@@ -6,11 +6,13 @@ This guide explains how to configure, secure, and deploy your server on both Win
 
 The server now supports several CLI arguments to make configuration easier:
 
-| Argument       | Environment Variable | Description                                          |
-| :------------- | :------------------- | :--------------------------------------------------- |
-| `--port`       | `PORT`               | Port to listen on (default: `3000`)                  |
-| `--db-path`    | `DATABASE_PATH`      | Path to the SQLite database (default: `sivycord.db`) |
-| `--admin-nick` | `ADMIN_NICK`         | Nickname for the first admin created on a fresh DB   |
+| Argument          | Environment Variable | Description                                           |
+| :---------------- | :------------------- | :---------------------------------------------------- |
+| `--port`          | `PORT`               | Port to listen on (default: `3000`)                   |
+| `--db-path`       | `DATABASE_PATH`      | Path to the SQLite database (default: `sivycord.db`)  |
+| `--admin-nick`    | `ADMIN_NICK`         | Nickname for the first admin created on a fresh DB    |
+| `--external-host` | `EXTERNAL_HOST`      | External domain/IP for invite tokens (e.g. `sync.pl`) |
+| `--external-port` | `EXTERNAL_PORT`      | External port for invite tokens (e.g. `443`)          |
 
 **Example (Windows):**
 
@@ -57,6 +59,45 @@ For the best experience on Linux, we provide a multi-stage Docker setup.
 ### Manual Build (Windows -> Linux)
 
 If you just want to compile for Linux without Docker, we推荐 using Docker as it simplifies dependency management (OpenSSL, etc.).
+
+---
+
+## 🌐 DNS & HTTPS Configuration
+
+To allow users to connect via a clean domain name and secure connection.
+
+### 1. SRV Record (Easy Connection)
+
+If you want users to just type `twojadomena.pl` instead of `twojadomena.pl:3000`, add an SRV record to your DNS provider:
+
+- **Service:** `_sivycord`
+- **Protocol:** `_tcp`
+- **Priority:** `0`
+- **Weight:** `0`
+- **Port:** `3000` (default)
+- **Target:** `twojadomena.pl` (your A record)
+
+### 2. Nginx Reverse Proxy (SSL)
+
+To use HTTPS and WSS (port 443), use Nginx as a reverse proxy:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name twojadomena.pl;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+```
+
+> [!IMPORTANT]
+> When using SSL (Port 443), make sure to set `EXTERNAL_PORT=443` so invite tokens use `https://`.
 
 ---
 
