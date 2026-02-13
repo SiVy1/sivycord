@@ -52,8 +52,29 @@ fn resolve_srv(domain: String) -> Result<Option<SrvResult>, String> {
 use iroh::node::Node;
 use iroh::endpoint::SecretKey;
 
+use iroh::docs::AuthorId;
+
 pub struct IrohState {
   pub node: Node,
+  pub author_id: AuthorId,
+}
+
+#[tauri::command]
+async fn send_message(state: tauri::State<'_, IrohState>, doc_id: String, message: String) -> Result<(), String> {
+  let doc_id = iroh::docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+  let doc = state.node.docs().get_by_id(doc_id).await.map_err(|e| e.to_string())?.ok_or("Document not found")?;
+  
+  let timestamp = std::time::SystemTime::now()
+    .duration_since(std::time::UNIX_EPOCH)
+    .unwrap()
+    .as_millis();
+  
+  let key = format!("chat/{}", timestamp);
+  doc.set_bytes(state.author_id, key.as_bytes().to_vec(), message.as_bytes().to_vec())
+    .await
+    .map_err(|e| e.to_string())?;
+    
+  Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -92,11 +113,27 @@ pub fn run() {
           .unwrap()
       });
 
-      app.manage(IrohState { node });
+      let author_id = rt.block_on(async {
+        let entry = keyring::Entry::new("sivyspeak", "default-author").unwrap();
+        match entry.get_password() {
+            Ok(pw) => {
+                let bytes = hex::decode(pw).expect("invalid author id in keychain");
+                AuthorId::from_bytes(&bytes.try_into().expect("invalid key length"))
+            }
+            Err(_) => {
+                let ai = node.authors().create().await.unwrap();
+                let hex_ai = hex::encode(ai.to_bytes());
+                entry.set_password(&hex_ai).expect("failed to save author id to keychain");
+                ai
+            }
+        }
+      });
+
+      app.manage(IrohState { node, author_id });
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![resolve_srv, get_node_id, create_doc, join_doc])
+    .invoke_handler(tauri::generate_handler![resolve_srv, get_node_id, create_doc, join_doc, send_message])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
