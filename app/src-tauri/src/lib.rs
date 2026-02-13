@@ -1,6 +1,7 @@
 use hickory_resolver::Resolver;
 use hickory_resolver::config::*;
 use serde::Serialize;
+use std::str::FromStr;
 
 #[derive(Serialize)]
 pub struct SrvResult {
@@ -11,6 +12,20 @@ pub struct SrvResult {
 #[tauri::command]
 async fn get_node_id(state: tauri::State<'_, IrohState>) -> Result<String, String> {
   Ok(state.node.node_id().to_string())
+}
+
+#[tauri::command]
+async fn create_doc(state: tauri::State<'_, IrohState>) -> Result<String, String> {
+  let doc = state.node.docs().create().await.map_err(|e| e.to_string())?;
+  let ticket = doc.share(iroh::docs::ShareMode::Write, iroh::docs::AddrInfoOptions::RelayAndAddresses).await.map_err(|e| e.to_string())?;
+  Ok(ticket.to_string())
+}
+
+#[tauri::command]
+async fn join_doc(state: tauri::State<'_, IrohState>, ticket_str: String) -> Result<String, String> {
+  let ticket = iroh::docs::DocTicket::from_str(&ticket_str).map_err(|e| e.to_string())?;
+  let doc = state.node.docs().import(ticket).await.map_err(|e| e.to_string())?;
+  Ok(doc.id().to_string())
 }
 
 #[tauri::command]
@@ -81,7 +96,7 @@ pub fn run() {
 
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![resolve_srv, get_node_id])
+    .invoke_handler(tauri::generate_handler![resolve_srv, get_node_id, create_doc, join_doc])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
