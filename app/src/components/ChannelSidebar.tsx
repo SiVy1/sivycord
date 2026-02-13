@@ -7,39 +7,62 @@ import { AdminPanel } from "./AdminPanel";
 import { type Channel, getApiUrl } from "../types";
 
 export function ChannelSidebar() {
-  const activeServerId = useStore((s) => s.activeServerId);
-  const servers = useStore((s) => s.servers);
-  const channels = useStore((s) => s.channels);
-  const activeChannelId = useStore((s) => s.activeChannelId);
-  const setChannels = useStore((s) => s.setChannels);
-  const setActiveChannel = useStore((s) => s.setActiveChannel);
-  const voiceChannelId = useStore((s) => s.voiceChannelId);
-  const voiceMembers = useStore((s) => s.voiceMembers);
-  const currentUser = useStore((s) => s.currentUser);
-  const talkingUsers = useStore((s) => s.talkingUsers);
-  const displayName = useStore((s) => s.displayName);
+  const activeServerId = useStore((s: any) => s.activeServerId);
+  const servers = useStore((s: any) => s.servers);
+  const channels = useStore((s: any) => s.channels);
+  const activeChannelId = useStore((s: any) => s.activeChannelId);
+  const setChannels = useStore((s: any) => s.setChannels);
+  const setActiveChannel = useStore((s: any) => s.setActiveChannel);
+  const voiceChannelId = useStore((s: any) => s.voiceChannelId);
+  const voiceMembers = useStore((s: any) => s.voiceMembers);
+  const currentUser = useStore((s: any) => s.currentUser);
+  const talkingUsers = useStore((s: any) => s.talkingUsers);
+  const displayName = useStore((s: any) => s.displayName);
   const { joinVoice, leaveVoice } = useVoice();
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
 
-  const activeServer = servers.find((s) => s.id === activeServerId);
+  const activeServer = servers.find((s: any) => s.id === activeServerId);
 
   const textChannels = channels.filter(
-    (c) => c.channel_type === "text" || !c.channel_type,
+    (c: any) => c.channel_type === "text" || !c.channel_type,
   );
-  const voiceChannels = channels.filter((c) => c.channel_type === "voice");
+  const voiceChannels = channels.filter((c: any) => c.channel_type === "voice");
 
   const fetchChannels = () => {
     if (!activeServer) return;
+    if (activeServer.type === "p2p") {
+      setChannels([
+        {
+          id: "p2p-text",
+          name: "General Chat",
+          description: "Decentralized P2P Chat",
+          position: 0,
+          createdAt: new Date().toISOString(),
+          channel_type: "text",
+        },
+        {
+          id: "p2p-voice",
+          name: "Voice Lounge",
+          description: "Decentralized Audio",
+          position: 1,
+          createdAt: new Date().toISOString(),
+          channel_type: "voice",
+        },
+      ]);
+      setActiveChannel("p2p-text");
+      return;
+    }
     const { host, port } = activeServer.config;
+    if (!host || !port) return;
     const baseUrl = getApiUrl(host, port);
     fetch(`${baseUrl}/api/channels`)
       .then((r) => r.json())
       .then((data: Channel[]) => {
         setChannels(data);
         const textCh = data.filter(
-          (c) => c.channel_type === "text" || !c.channel_type,
+          (c: any) => c.channel_type === "text" || !c.channel_type,
         );
         if (textCh.length > 0 && !activeChannelId) {
           setActiveChannel(textCh[0].id);
@@ -57,29 +80,33 @@ export function ChannelSidebar() {
       {/* Server header */}
       <div className="h-14 flex items-center px-4 border-b border-border/50 justify-between bg-bg-secondary/80 backdrop-blur-md sticky top-0 z-10">
         <h2 className="text-sm font-bold text-text-primary truncate tracking-tight">
-          {activeServer?.config.serverName ||
-            activeServer?.config.host ||
-            "Server"}
+          {activeServer?.type === "p2p"
+            ? "P2P Space"
+            : activeServer?.config.serverName ||
+              activeServer?.config.host ||
+              "Server"}
         </h2>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface transition-all cursor-pointer"
-          title="Create channel"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
+        {activeServer?.type !== "p2p" && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface transition-all cursor-pointer"
+            title="Create channel"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 4.5v15m7.5-7.5h-15"
-            />
-          </svg>
-        </button>
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 4.5v15m7.5-7.5h-15"
+              />
+            </svg>
+          </button>
+        )}
       </div>
       {/* Channel list */}
       <div className="flex-1 overflow-y-auto py-4 px-2.5 space-y-4">
@@ -89,7 +116,7 @@ export function ChannelSidebar() {
             <span>Text Channels</span>
           </div>
           <div className="space-y-0.5">
-            {textChannels.map((channel) => (
+            {textChannels.map((channel: Channel) => (
               <button
                 key={channel.id}
                 onClick={() => setActiveChannel(channel.id)}
@@ -124,10 +151,10 @@ export function ChannelSidebar() {
             <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wider px-2 mb-1 mt-4">
               Voice Channels
             </div>
-            {voiceChannels.map((channel) => {
+            {voiceChannels.map((channel: Channel) => {
               const isConnected = voiceChannelId === channel.id;
               const voiceMembersInThisChannel = voiceMembers.filter(
-                (m) => m.channel_id === channel.id,
+                (m: any) => m.channel_id === channel.id,
               );
               return (
                 <div key={channel.id}>

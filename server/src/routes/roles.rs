@@ -14,7 +14,7 @@ use crate::state::AppState;
 const MAX_ROLE_NAME: usize = 64;
 
 // ─── Helper: Check if user has permission ───
-async fn user_has_permission(
+pub async fn user_has_permission(
     state: &AppState,
     user_id: &str,
     required: Permissions,

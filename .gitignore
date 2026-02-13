@@ -33,4 +33,5 @@ yarn-debug.log*
 
 # Secrets
 server/jwt_secret.key
-*.pdf
+
+*.txt

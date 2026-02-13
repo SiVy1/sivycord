@@ -33,7 +33,7 @@ export function SetupScreen() {
             </svg>
           </div>
           <h1 className="text-3xl font-bold text-text-primary mb-3 tracking-tight">
-            SyncSpace
+            SivySpeak
           </h1>
           <p className="text-base text-text-secondary font-medium">
             Welcome! How should we call you?

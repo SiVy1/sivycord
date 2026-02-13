@@ -1,7 +1,15 @@
 import { useState, useEffect } from "react";
 import { useStore } from "../store";
 import type { RoleWithMembers, Role, AuthUser } from "../types";
-import { PERMISSIONS, hasPermission, getApiUrl } from "../types";
+import {
+  PERMISSIONS,
+  PERMISSION_DEFS,
+  PERMISSION_CATEGORIES,
+  PERMISSION_PRESETS,
+  hasPermission,
+  permissionBitsToLabels,
+  getApiUrl,
+} from "../types";
 
 interface AdminPanelProps {
   onClose: () => void;
@@ -21,12 +29,19 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    if (!currentUser || !activeServer) return;
+    // P2P server: owner is admin
+    if (activeServer?.type === "p2p") {
+      setIsAdmin(!!activeServer.config.p2p?.isOwner);
+      return;
+    }
+
+    if (!currentUser || !activeServer || activeServer.type !== "legacy") return;
+
+    const { host, port } = activeServer.config;
+    if (!host || !port) return;
 
     // Fetch user's roles
-    fetch(
-      `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/users/${currentUser.id}/roles`,
-    )
+    fetch(`${getApiUrl(host, port)}/api/users/${currentUser.id}/roles`)
       .then((res) => res.json())
       .then((roles: Role[]) => {
         const maxPerms = Math.max(...roles.map((r) => r.permissions), 0);
@@ -35,7 +50,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       .catch(console.error);
   }, [currentUser, activeServer]);
 
-  if (!activeServer || !currentUser) {
+  if (!activeServer || (activeServer.type === "legacy" && !currentUser)) {
     return (
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
         <div className="bg-bg-primary rounded-3xl shadow-2xl p-6 max-w-md w-full mx-4">
@@ -248,8 +263,9 @@ function RolesTab({ server }: { server: any }) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-text-muted font-mono bg-bg-primary px-2 py-1 rounded">
-                  {role.permissions}
+                <span className="text-xs text-text-muted bg-bg-primary px-2 py-1 rounded max-w-[200px] truncate" title={permissionBitsToLabels(role.permissions).join(', ')}>
+                  {permissionBitsToLabels(role.permissions).slice(0, 3).join(', ')}
+                  {permissionBitsToLabels(role.permissions).length > 3 && ` +${permissionBitsToLabels(role.permissions).length - 3}`}
                 </span>
                 <button
                   onClick={() => setEditingRole(role)}
@@ -933,6 +949,58 @@ function AuditLogsTab({ server }: { server: any }) {
   );
 }
 
+// ─── Permission Editor (checkbox grid grouped by category) ───
+function PermissionEditor({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  const toggle = (bit: number) => {
+    onChange(value ^ bit);
+  };
+
+  return (
+    <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+      {PERMISSION_CATEGORIES.map((cat) => {
+        const perms = PERMISSION_DEFS.filter((d) => d.category === cat.key);
+        if (perms.length === 0) return null;
+        return (
+          <div key={cat.key}>
+            <h4 className="text-xs font-bold text-text-muted uppercase tracking-wider mb-1.5">
+              {cat.label}
+            </h4>
+            <div className="space-y-1">
+              {perms.map((perm) => (
+                <label
+                  key={perm.key}
+                  className="flex items-center gap-3 px-3 py-1.5 rounded-lg hover:bg-bg-hover cursor-pointer group"
+                >
+                  <input
+                    type="checkbox"
+                    checked={(value & perm.value) !== 0}
+                    onChange={() => toggle(perm.value)}
+                    className="accent-accent w-4 h-4 rounded"
+                  />
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium text-text-primary">
+                      {perm.label}
+                    </span>
+                    <p className="text-xs text-text-muted leading-tight">
+                      {perm.description}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Create Role Modal ───
 function CreateRoleModal({
   server,
@@ -945,7 +1013,7 @@ function CreateRoleModal({
 }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#5865F2");
-  const [permissions, setPermissions] = useState(66560); // default member perms
+  const [permissions, setPermissions] = useState(PERMISSION_PRESETS.MEMBER);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -1019,18 +1087,27 @@ function CreateRoleModal({
 
           <div>
             <label className="block text-sm font-bold text-text-secondary mb-2">
-              Permissions (numeric)
+              Preset
             </label>
-            <input
-              type="number"
-              value={permissions}
-              onChange={(e) => setPermissions(parseInt(e.target.value) || 0)}
-              className="w-full px-4 py-3 bg-bg-surface text-text-primary rounded-xl border border-border focus:border-accent focus:outline-none font-mono"
-            />
-            <p className="text-xs text-text-muted mt-1">
-              Default: 66560 (Member), 523263 (Moderator), 1073741824 (Admin)
-            </p>
+            <div className="flex gap-2 mb-3">
+              {(["MEMBER", "MODERATOR", "ADMIN"] as const).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setPermissions(PERMISSION_PRESETS[preset])}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                    permissions === PERMISSION_PRESETS[preset]
+                      ? "bg-accent text-white"
+                      : "bg-bg-surface text-text-secondary hover:bg-bg-hover"
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
           </div>
+
+          <PermissionEditor value={permissions} onChange={setPermissions} />
 
           {error && (
             <div className="text-danger text-sm bg-danger/10 p-3 rounded-xl">
@@ -1164,17 +1241,7 @@ function EditRoleModal({
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-bold text-text-secondary mb-2">
-              Permissions (numeric)
-            </label>
-            <input
-              type="number"
-              value={permissions}
-              onChange={(e) => setPermissions(parseInt(e.target.value) || 0)}
-              className="w-full px-4 py-3 bg-bg-surface text-text-primary rounded-xl border border-border focus:border-accent focus:outline-none font-mono"
-            />
-          </div>
+          <PermissionEditor value={permissions} onChange={setPermissions} />
 
           {error && (
             <div className="text-danger text-sm bg-danger/10 p-3 rounded-xl">

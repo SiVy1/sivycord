@@ -68,9 +68,12 @@ interface AppState {
   // Iroh P2P
   nodeId: string | null;
   irohReady: boolean;
+  p2pVoiceActive: boolean;
   fetchNodeId: () => Promise<void>;
   createP2PServer: (name: string) => Promise<void>;
   joinP2PServer: (name: string, ticket: string) => Promise<void>;
+  startP2PVoice: (docId: string) => Promise<void>;
+  stopP2PVoice: () => Promise<void>;
 
   logout: () => void;
 }
@@ -203,29 +206,34 @@ export const useStore = create<AppState>()(
           console.error("Failed to fetch NodeID", err);
         }
       },
-      createP2PServer: async (name) => {
+      p2pVoiceActive: false,
+      createP2PServer: async (name: string) => {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
           const ticket = await invoke<string>("create_doc");
           const namespaceId = ticket.split(":")[0]; // Simplification for now
-          const newServer: ServerEntry = {
+          const server: ServerEntry = {
             id: namespaceId,
             type: "p2p",
             displayName: name,
             initial: name[0].toUpperCase(),
             config: {
-              p2p: { ticket, namespaceId },
+              p2p: {
+                ticket,
+                namespaceId,
+                isOwner: true,
+              },
             },
           };
           set((s) => ({
-            servers: [...s.servers, newServer],
+            servers: [...s.servers, server],
             activeServerId: namespaceId,
           }));
         } catch (err) {
           console.error("Failed to create P2P server", err);
         }
       },
-      joinP2PServer: async (name, ticket) => {
+      joinP2PServer: async (name: string, ticket: string) => {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
           const namespaceId = await invoke<string>("join_doc", {
@@ -237,7 +245,7 @@ export const useStore = create<AppState>()(
             displayName: name,
             initial: name[0].toUpperCase(),
             config: {
-              p2p: { ticket, namespaceId },
+              p2p: { ticket, namespaceId, isOwner: false },
             },
           };
           set((s) => ({
@@ -247,6 +255,18 @@ export const useStore = create<AppState>()(
         } catch (err) {
           console.error("Failed to join P2P server", err);
         }
+      },
+      startP2PVoice: async (docId: string) => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("start_voice", { docId });
+          set({ p2pVoiceActive: true });
+        } catch (err) {
+          console.error("Failed to start P2P voice", err);
+        }
+      },
+      stopP2PVoice: async () => {
+        set({ p2pVoiceActive: false });
       },
 
       logout: () =>
@@ -271,7 +291,7 @@ export const useStore = create<AppState>()(
     }),
 
     {
-      name: "sivycord-storage",
+      name: "sivyspeak-storage",
       partialize: (state) => ({
         displayName: state.displayName,
         servers: state.servers,

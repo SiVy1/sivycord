@@ -30,19 +30,24 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
   };
 
   const handleUpdateProfile = async () => {
-    if (!currentUser || !activeServer || !activeServer.config.authToken) return;
+    if (
+      !currentUser ||
+      !activeServer ||
+      activeServer.type !== "legacy" ||
+      !activeServer.config.authToken
+    )
+      return;
+    const { host, port } = activeServer.config;
+    if (!host || !port) return;
     try {
-      const res = await fetch(
-        `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/me`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${activeServer.config.authToken}`,
-          },
-          body: JSON.stringify({ display_name: newName.trim() }),
+      const res = await fetch(`${getApiUrl(host, port)}/api/me`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${activeServer.config.authToken}`,
         },
-      );
+        body: JSON.stringify({ display_name: newName.trim() }),
+      });
       if (res.ok) {
         const updated = await res.json();
         setCurrentUser(updated);
@@ -55,23 +60,28 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !activeServer || !activeServer.config.authToken) return;
+    if (
+      !file ||
+      !activeServer ||
+      activeServer.type !== "legacy" ||
+      !activeServer.config.authToken
+    )
+      return;
+    const { host, port } = activeServer.config;
+    if (!host || !port) return;
 
     setUploadingAvatar(true);
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch(
-        `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/me/avatar`,
-        {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${activeServer.config.authToken}`,
-          },
-          body: formData,
+      const res = await fetch(`${getApiUrl(host, port)}/api/me/avatar`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${activeServer.config.authToken}`,
         },
-      );
+        body: formData,
+      });
       if (res.ok) {
         const updated = await res.json();
         setCurrentUser(updated);
@@ -121,9 +131,13 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
             {currentUser ? (
               <div className="bg-bg-primary/50 rounded-2xl border border-border/50 p-6 flex items-center gap-6 shadow-sm">
                 <div className="relative group">
-                  {currentUser.avatar_url ? (
+                  {activeServer &&
+                  activeServer.type === "legacy" &&
+                  activeServer.config.host &&
+                  activeServer.config.port &&
+                  currentUser.avatar_url ? (
                     <img
-                      src={`${getApiUrl(activeServer!.config.host, activeServer!.config.port)}${currentUser.avatar_url}`}
+                      src={`${getApiUrl(activeServer.config.host, activeServer.config.port)}${currentUser.avatar_url}`}
                       className="w-20 h-20 rounded-3xl object-cover border-2 border-border/50 shadow-md group-hover:border-accent/50 transition-all"
                       alt={currentUser.display_name}
                     />
@@ -281,18 +295,22 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
         </div>
       </div>
 
-      {showAuth && activeServer && (
-        <AuthScreen
-          serverHost={activeServer.config.host}
-          serverPort={activeServer.config.port}
-          onAuth={(user, token) => {
-            setCurrentUser(user);
-            updateServerAuth(activeServer.id, token, user.id);
-            setShowAuth(false);
-          }}
-          onSkip={() => setShowAuth(false)}
-        />
-      )}
+      {showAuth &&
+        activeServer &&
+        activeServer.type === "legacy" &&
+        activeServer.config.host &&
+        activeServer.config.port && (
+          <AuthScreen
+            serverHost={activeServer.config.host}
+            serverPort={activeServer.config.port}
+            onAuth={(user, token) => {
+              setCurrentUser(user);
+              updateServerAuth(activeServer.id, token, user.id);
+              setShowAuth(false);
+            }}
+            onSkip={() => setShowAuth(false)}
+          />
+        )}
     </div>
   );
 }

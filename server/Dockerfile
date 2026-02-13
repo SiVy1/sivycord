@@ -14,15 +14,15 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-COPY --from=builder /usr/src/app/target/release/sivycord-server /app/sivycord-server
+COPY --from=builder /usr/src/app/target/release/sivyspeak-server /app/sivyspeak-server
 COPY --from=builder /usr/src/app/migrations /app/migrations
 
 # Create uploads directory
 RUN mkdir /app/uploads
 
 ENV PORT=3000
-ENV DATABASE_PATH=/app/data/sivycord.db
+ENV DATABASE_PATH=/app/data/sivyspeak.db
 
 EXPOSE 3000
 
-CMD ["./sivycord-server"]
+CMD ["./sivyspeak-server"]

@@ -91,14 +91,17 @@ function playVoiceSound(type: "join" | "leave") {
     if (Math.random() * 100 < soundChance) {
       try {
         // Ensure absolute URL if it's a relative path from the server
-        const fullUrl = serverSoundUrl.startsWith("http")
-          ? serverSoundUrl
-          : `${getApiUrl(activeServer.config.host, activeServer.config.port)}${serverSoundUrl}`;
+        const { host, port } = activeServer.config;
+        if (activeServer.type === "legacy" && host && port) {
+          const fullUrl = serverSoundUrl.startsWith("http")
+            ? serverSoundUrl
+            : `${getApiUrl(host, port)}${serverSoundUrl}`;
 
-        const audio = new Audio(fullUrl);
-        audio.volume = 0.4;
-        audio.play().catch(() => {});
-        return;
+          const audio = new Audio(fullUrl);
+          audio.volume = 0.4;
+          audio.play().catch(() => {});
+          return;
+        }
       } catch {
         // Fall back
       }
@@ -494,7 +497,17 @@ export function useVoice() {
       setVoiceChannel(channelId);
       currentChannelId = channelId;
 
+      if (activeServer.type === "p2p") {
+        const docId = activeServer.config.p2p?.namespaceId;
+        if (docId) {
+          await useStore.getState().startP2PVoice(docId);
+          playVoiceSound("join");
+        }
+        return;
+      }
+
       const { host, port, authToken } = activeServer.config;
+      if (!host || !port) return;
       try {
         const wsUrl = `${getWsUrl(host, port)}/ws${
           authToken ? `?token=${authToken}` : ""
@@ -782,6 +795,10 @@ export function useVoice() {
       } catch {
         // ignore
       }
+    }
+
+    if (activeServer?.type === "p2p") {
+      useStore.getState().stopP2PVoice();
     }
 
     // Play leave sound

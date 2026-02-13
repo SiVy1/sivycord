@@ -22,7 +22,7 @@ struct Args {
     port: u16,
 
     /// Database path
-    #[arg(short, long, env = "DATABASE_PATH", default_value = "sivycord.db")]
+    #[arg(short, long, env = "DATABASE_PATH", default_value = "sivyspeak.db")]
     db_path: String,
 
     /// External host for invite tokens (e.g. your domain)
@@ -222,7 +222,7 @@ async fn main() {
 
     println!();
     println!("  ╔══════════════════════════════════════════════╗");
-    println!("  ║           SiVyCord Server v0.2.0             ║");
+    println!("  ║          SivySpeak Server v0.2.0             ║");
     println!("  ╠══════════════════════════════════════════════╣");
     println!("  ║  Running on: http://localhost:{:<14}║", port);
     println!("  ╠══════════════════════════════════════════════╣");

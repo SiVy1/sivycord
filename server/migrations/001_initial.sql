@@ -1,4 +1,4 @@
--- SiVyCord initial schema
+-- SivySpeak initial schema
 
 CREATE TABLE IF NOT EXISTS channels (
     id          TEXT PRIMARY KEY,

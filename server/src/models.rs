@@ -37,6 +37,8 @@ pub struct InviteCode {
 }
 
 // ─── Permissions ───
+// SYNC NOTE: Bit positions must match app/src/types.ts PERMISSION_DEFS.
+// When adding/removing permissions, update BOTH this file and the frontend.
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Permissions: i64 {

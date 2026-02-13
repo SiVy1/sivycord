@@ -54,15 +54,14 @@ export function MainLayout() {
     }
 
     const fetchProfile = async () => {
+      const { host, port } = activeServer.config;
+      if (activeServer.type !== "legacy" || !host || !port) return;
       try {
-        const res = await fetch(
-          `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/me`,
-          {
-            headers: {
-              Authorization: `Bearer ${activeServer.config.authToken}`,
-            },
+        const res = await fetch(`${getApiUrl(host, port)}/api/me`, {
+          headers: {
+            Authorization: `Bearer ${activeServer.config.authToken}`,
           },
-        );
+        });
         if (res.ok) {
           const user = await res.json();
           setCurrentUser(user);

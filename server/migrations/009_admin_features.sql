@@ -1,6 +1,6 @@
 -- Add server name and description to server_settings
-ALTER TABLE server_settings ADD COLUMN server_name TEXT NOT NULL DEFAULT 'SiVyCord Server';
-ALTER TABLE server_settings ADD COLUMN server_description TEXT NOT NULL DEFAULT 'Welcome to SiVyCord!';
+ALTER TABLE server_settings ADD COLUMN server_name TEXT NOT NULL DEFAULT 'SivySpeak Server';
+ALTER TABLE server_settings ADD COLUMN server_description TEXT NOT NULL DEFAULT 'Welcome to SivySpeak!';
 
 -- Create audit_logs table
 CREATE TABLE IF NOT EXISTS audit_logs (

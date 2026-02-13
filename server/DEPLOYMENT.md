@@ -9,7 +9,7 @@ The server now supports several CLI arguments to make configuration easier:
 | Argument          | Environment Variable | Description                                           |
 | :---------------- | :------------------- | :---------------------------------------------------- |
 | `--port`          | `PORT`               | Port to listen on (default: `3000`)                   |
-| `--db-path`       | `DATABASE_PATH`      | Path to the SQLite database (default: `sivycord.db`)  |
+| `--db-path`       | `DATABASE_PATH`      | Path to the SQLite database (default: `sivyspeak.db`)  |
 | `--admin-nick`    | `ADMIN_NICK`         | Nickname for the first admin created on a fresh DB    |
 | `--external-host` | `EXTERNAL_HOST`      | External domain/IP for invite tokens (e.g. `sync.pl`) |
 | `--external-port` | `EXTERNAL_PORT`      | External port for invite tokens (e.g. `443`)          |
@@ -17,7 +17,7 @@ The server now supports several CLI arguments to make configuration easier:
 **Example (Windows):**
 
 ```powershell
-.\sivycord-server.exe --port 8080 --admin-nick "MyCoolAdmin"
+.\sivyspeak-server.exe --port 8080 --admin-nick "MyCoolAdmin"
 ```
 
 ---
@@ -70,7 +70,7 @@ To allow users to connect via a clean domain name and secure connection.
 
 If you want users to just type `twojadomena.pl` instead of `twojadomena.pl:3000`, add an SRV record to your DNS provider:
 
-- **Service:** `_sivycord`
+- **Service:** `_sivyspeak`
 - **Protocol:** `_tcp`
 - **Priority:** `0`
 - **Weight:** `0`

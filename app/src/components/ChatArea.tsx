@@ -56,7 +56,39 @@ export function ChatArea() {
   useEffect(() => {
     if (!activeServer || !activeChannelId) return;
     seenMsgIds.current.clear();
+
+    if (activeServer.type === "p2p") {
+      const fetchP2PHistory = async () => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const ticket = activeServer.config.p2p?.ticket;
+          if (!ticket) return;
+          const namespaceId = ticket.split(":")[0];
+          const entries = await invoke<any[]>("list_entries", {
+            docId: namespaceId,
+          });
+
+          const mapped = entries.map((e) => ({
+            id: e.key,
+            channelId: "p2p",
+            userId: e.author,
+            userName: e.author.substring(0, 8),
+            content: e.content,
+            createdAt: new Date().toISOString(), // Backend doesn't give timestamp yet in list_entries easily
+          }));
+          mapped.forEach((m) => seenMsgIds.current.add(m.id));
+          setMessages(mapped);
+        } catch (err) {
+          console.error("Failed to fetch P2P history", err);
+          setMessages([]);
+        }
+      };
+      fetchP2PHistory();
+      return;
+    }
+
     const { host, port } = activeServer.config;
+    if (!host || !port) return;
     const baseUrl = getApiUrl(host, port);
 
     const controller = new AbortController();
@@ -103,6 +135,7 @@ export function ChatArea() {
       wsRef.current.close();
     }
 
+    if (!host || !port) return;
     setWsStatus("connecting");
     const wsBaseUrl = getWsUrl(host, port);
     const wsUrl = authToken
@@ -226,49 +259,52 @@ export function ChatArea() {
         return;
       }
 
-      setUploading(true);
-      try {
-        const { host, port, authToken } = activeServer.config;
-        const baseUrl = getApiUrl(host, port);
-        const formData = new FormData();
-        formData.append("file", file);
+      if (activeServer.type === "legacy") {
+        setUploading(true);
+        try {
+          const { host, port, authToken } = activeServer.config;
+          if (!host || !port) return;
+          const baseUrl = getApiUrl(host, port);
+          const formData = new FormData();
+          formData.append("file", file);
 
-        const res = await fetch(`${baseUrl}/api/upload`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${authToken}` },
-          body: formData,
-        });
+          const res = await fetch(`${baseUrl}/api/upload`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${authToken}` },
+            body: formData,
+          });
 
-        if (!res.ok) throw new Error("Upload failed");
-        const data = await res.json();
+          if (!res.ok) throw new Error("Upload failed");
+          const data = await res.json();
 
-        // Send message with file link
-        const fileUrl = `${baseUrl}${data.url}`;
-        const isMedia =
-          data.mime_type?.startsWith("image/") ||
-          data.mime_type?.startsWith("video/");
-        const content = isMedia
-          ? `[${data.filename}](${fileUrl})`
-          : `📎 [${data.filename}](${fileUrl}) (${formatFileSize(data.size)})`;
+          // Send message with file link
+          const fileUrl = `${baseUrl}${data.url}`;
+          const isMedia =
+            data.mime_type?.startsWith("image/") ||
+            data.mime_type?.startsWith("video/");
+          const content = isMedia
+            ? `[${data.filename}](${fileUrl})`
+            : `📎 [${data.filename}](${fileUrl}) (${formatFileSize(data.size)})`;
 
-        if (
-          wsRef.current &&
-          wsRef.current.readyState === WebSocket.OPEN &&
-          activeChannelId
-        ) {
-          const msg: WsClientMessage = {
-            type: "send_message",
-            channel_id: activeChannelId,
-            content,
-            user_id: activeServer.config.userId || "unknown",
-            user_name: displayName || "Anonymous",
-          };
-          wsRef.current.send(JSON.stringify(msg));
+          if (
+            wsRef.current &&
+            wsRef.current.readyState === WebSocket.OPEN &&
+            activeChannelId
+          ) {
+            const msg: WsClientMessage = {
+              type: "send_message",
+              channel_id: activeChannelId,
+              content,
+              user_id: activeServer.config.userId || "unknown",
+              user_name: displayName || "Anonymous",
+            };
+            wsRef.current.send(JSON.stringify(msg));
+          }
+        } catch (err) {
+          console.error("Upload failed:", err);
+        } finally {
+          setUploading(false);
         }
-      } catch (err) {
-        console.error("Upload failed:", err);
-      } finally {
-        setUploading(false);
       }
     },
     [activeServer, activeChannelId, displayName, isAuthenticated],
@@ -284,17 +320,31 @@ export function ChatArea() {
     [uploadFile],
   );
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const trimmed = input.trim();
+    if (!trimmed || !activeServer) return;
+    if (trimmed.length > MAX_MESSAGE_LENGTH) return;
+
+    if (activeServer.type === "p2p") {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const ticket = activeServer.config.p2p?.ticket;
+        if (!ticket) return;
+        const namespaceId = ticket.split(":")[0];
+        await invoke("send_message", { docId: namespaceId, message: trimmed });
+        setInput("");
+      } catch (err) {
+        console.error("Failed to send P2P message", err);
+      }
+      return;
+    }
+
     if (
-      !trimmed ||
       !wsRef.current ||
       wsRef.current.readyState !== WebSocket.OPEN ||
-      !activeChannelId ||
-      !activeServer
+      !activeChannelId
     )
       return;
-    if (trimmed.length > MAX_MESSAGE_LENGTH) return;
 
     const msg: WsClientMessage = {
       type: "send_message",
@@ -349,28 +399,60 @@ export function ChatArea() {
           </>
         )}
         <div className="ml-auto flex items-center gap-3">
-          <div className="flex items-center gap-2 bg-bg-secondary px-2.5 py-1 rounded-full border border-border/50">
-            <div
-              className={`w-2 h-2 rounded-full ${
-                wsStatus === "connected"
-                  ? "bg-success shadow-[0_0_8px_rgba(16,185,129,0.5)]"
-                  : wsStatus === "connecting"
-                    ? "bg-yellow-400 animate-pulse"
-                    : "bg-danger shadow-[0_0_8px_rgba(239,68,68,0.5)]"
-              }`}
-            />
-            <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
-              {wsStatus === "connected"
-                ? "Online"
-                : wsStatus === "connecting"
-                  ? "Connecting"
-                  : "Offline"}
-            </span>
-          </div>
-          {!isAuthenticated && (
-            <span className="text-[10px] font-bold text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20 uppercase tracking-widest">
-              Guest
-            </span>
+          {activeServer?.type === "p2p" ? (
+            <div className="flex items-center gap-3">
+              <div
+                className="flex items-center gap-2 bg-accent/10 hover:bg-accent/20 px-3 py-1 rounded-full border border-accent/20 cursor-pointer transition-all active:scale-95"
+                onClick={() => {
+                  if (activeServer.config.p2p?.ticket) {
+                    navigator.clipboard.writeText(
+                      activeServer.config.p2p.ticket,
+                    );
+                    // Could add a toast here
+                  }
+                }}
+                title="Click to copy Invite Ticket"
+              >
+                <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                <span className="text-[10px] font-bold text-accent uppercase tracking-widest">
+                  P2P Network
+                </span>
+              </div>
+              <div className="bg-bg-secondary px-2.5 py-1 rounded-full border border-border/50">
+                <span className="text-[10px] font-bold text-text-muted">
+                  ID:{" "}
+                </span>
+                <span className="text-[10px] font-mono font-bold text-text-secondary">
+                  {useStore.getState().nodeId?.substring(0, 8)}...
+                </span>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 bg-bg-secondary px-2.5 py-1 rounded-full border border-border/50">
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    wsStatus === "connected"
+                      ? "bg-success shadow-[0_0_8px_rgba(16,185,129,0.5)]"
+                      : wsStatus === "connecting"
+                        ? "bg-yellow-400 animate-pulse"
+                        : "bg-danger shadow-[0_0_8px_rgba(239,68,68,0.5)]"
+                  }`}
+                />
+                <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">
+                  {wsStatus === "connected"
+                    ? "Online"
+                    : wsStatus === "connecting"
+                      ? "Connecting"
+                      : "Offline"}
+                </span>
+              </div>
+              {!isAuthenticated && (
+                <span className="text-[10px] font-bold text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20 uppercase tracking-widest">
+                  Guest
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -448,12 +530,23 @@ export function ChatArea() {
               {showHeader && (
                 <div className="flex items-center gap-3 mb-1">
                   {/* Avatar */}
-                  {avatarUrl ? (
-                    <img
-                      src={`${getApiUrl(activeServer!.config.host, activeServer!.config.port)}${avatarUrl}`}
-                      className="w-10 h-10 rounded-xl object-cover border border-border/50 shadow-sm shrink-0"
-                      alt={msg.userName}
-                    />
+                  {avatarUrl && activeServer ? (
+                    <>
+                      {activeServer.type === "legacy" &&
+                        activeServer.config.host &&
+                        activeServer.config.port && (
+                          <img
+                            src={`${getApiUrl(activeServer.config.host, activeServer.config.port)}${avatarUrl}`}
+                            alt={msg.userName}
+                            className="w-10 h-10 rounded-full object-cover shadow-sm bg-bg-surface"
+                          />
+                        )}
+                      {activeServer.type === "p2p" && (
+                        <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-white font-bold">
+                          {msg.userName[0].toUpperCase()}
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div className="w-10 h-10 rounded-xl bg-bg-surface flex items-center justify-center text-sm font-bold text-accent shadow-sm flex-shrink-0 border border-border/50">
                       {(msg.userName || "?")[0]?.toUpperCase()}
@@ -470,7 +563,7 @@ export function ChatArea() {
                 </div>
               )}
               <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
-                <MessageContent content={msg.content} server={activeServer!} />
+                <MessageContent content={msg.content} server={activeServer} />
               </div>
             </div>
           );
@@ -482,13 +575,21 @@ export function ChatArea() {
       <div className="px-4 pb-4">
         <div className="relative">
           {showEmoji && activeServer && (
-            <EmojiPicker
-              serverHost={activeServer.config.host}
-              serverPort={activeServer.config.port}
-              authToken={activeServer.config.authToken}
-              onSelect={(e) => setInput((prev) => prev + e)}
-              onClose={() => setShowEmoji(false)}
-            />
+            <>
+              {activeServer.type === "legacy" &&
+                activeServer.config.host &&
+                activeServer.config.port && (
+                  <EmojiPicker
+                    onSelect={(emoji: string) =>
+                      setInput((s: string) => s + emoji)
+                    }
+                    serverHost={activeServer.config.host}
+                    serverPort={activeServer.config.port}
+                    authToken={activeServer.config.authToken}
+                    onClose={() => setShowEmoji(false)}
+                  />
+                )}
+            </>
           )}
         </div>
         <div className="bg-bg-secondary border border-border/50 rounded-2xl flex items-end shadow-lg focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all">
@@ -532,13 +633,18 @@ export function ChatArea() {
             }
             onKeyDown={handleKeyDown}
             placeholder={
-              !isAuthenticated
-                ? "Log in to send messages"
-                : wsStatus !== "connected"
-                  ? "Reconnecting..."
-                  : `Message #${activeChannel?.name || "channel"}`
+              activeServer?.type === "p2p"
+                ? "Message P2P Namespace..."
+                : !isAuthenticated
+                  ? "Log in to send messages"
+                  : wsStatus !== "connected"
+                    ? "Reconnecting..."
+                    : `Message #${activeChannel?.name || "channel"}`
             }
-            disabled={wsStatus !== "connected" || !isAuthenticated}
+            disabled={
+              activeServer?.type !== "p2p" &&
+              (wsStatus !== "connected" || !isAuthenticated)
+            }
             rows={1}
             className="flex-1 bg-transparent resize-none px-4 py-3.5 text-sm text-text-primary placeholder:text-text-muted outline-none disabled:opacity-50"
           />
@@ -607,15 +713,9 @@ export function ChatArea() {
 // ─── Message content renderer ───
 // Renders links as clickable, images as inline previews
 
-function MessageContent({
-  content,
-  server,
-}: {
-  content: string;
-  server: { config: { host: string; port: number } };
-}) {
-  const { host, port } = server.config;
-  const baseUrl = getApiUrl(host, port);
+function MessageContent({ content, server }: { content: string; server: any }) {
+  const { host, port } = server.config || {};
+  const baseUrl = host && port ? getApiUrl(host, port) : "";
 
   // Parse markdown-style links: [text](url) AND custom emoji :name:
   const parts = content.split(/(\[[^\]]+\]\([^)]+\)|:[a-z0-9_]+:)/g);

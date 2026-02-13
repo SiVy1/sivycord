@@ -74,7 +74,7 @@ pub async fn join_server(
 
     Ok(Json(JoinResponse {
         user_id,
-        server_name: "SiVyCord Server".to_string(),
+        server_name: "SivySpeak Server".to_string(),
     }))
 }
 
@@ -90,7 +90,7 @@ pub async fn join_direct(
     let user_id = Uuid::new_v4().to_string();
     Json(JoinResponse {
         user_id,
-        server_name: "SiVyCord Server".to_string(),
+        server_name: "SivySpeak Server".to_string(),
     })
 }
 pub async fn list_invites(State(state): State<AppState>) -> Json<Vec<crate::models::InviteCode>> {

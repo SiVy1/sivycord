@@ -7,7 +7,7 @@ pub async fn get_server_info(State(state): State<AppState>) -> Json<ServerInfo> 
     let settings: (String, String, Option<String>, Option<String>, i64) = sqlx::query_as("SELECT server_name, server_description, join_sound_url, leave_sound_url, sound_chance FROM server_settings WHERE id = 1")
         .fetch_one(&state.db)
         .await
-        .unwrap_or_else(|_| ("SiVyCord Server".to_string(), "Welcome to SiVyCord!".to_string(), None, None, 100));
+        .unwrap_or_else(|_| ("SivySpeak Server".to_string(), "Welcome to SivySpeak!".to_string(), None, None, 100));
 
     let channels: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels")
         .fetch_one(&state.db)
