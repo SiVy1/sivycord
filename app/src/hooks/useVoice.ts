@@ -1,405 +1,15 @@
 import { useCallback, useEffect } from "react";
 import { useStore } from "../store";
-import { type WsServerMessage, getApiUrl, getWsUrl } from "../types";
-
-// ─── Module-level singleton state ───
-// These live outside the hook so every component calling useVoice()
-// shares the exact same WebSocket, peer connections, streams, etc.
-
-let ws: WebSocket | null = null;
-let localStream: MediaStream | null = null;
-let displayStream: MediaStream | null = null;
-let localUserId = "unknown";
-let currentChannelId: string | null = null;
-
-const peerConnections = new Map<string, RTCPeerConnection>();
-const makingOffer = new Map<string, boolean>();
-const audioElements = new Map<string, HTMLAudioElement>();
-const screenTrackSenders = new Map<string, RTCRtpSender>();
-
-// VAD (voice activity detection)
-let audioContext: AudioContext | null = null;
-let analyserNode: AnalyserNode | null = null;
-let vadInterval: ReturnType<typeof setInterval> | null = null;
-let isTalkingLocal = false;
-
-// Mute / Deafen state
-let isMutedLocal = false;
-let isDeafenedLocal = false;
-
-const ICE_SERVERS: RTCIceServer[] = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-];
-
-// ─── Helper: play toggle sound ───
-function playToggleSound(on: boolean) {
-  const soundSettings = useStore.getState().soundSettings;
-  const soundType = on ? null : on === false ? "muteSound" : null;
-
-  // Try custom sound first
-  if (soundType && soundSettings[soundType as keyof typeof soundSettings]) {
-    try {
-      const audio = new Audio(
-        soundSettings[soundType as keyof typeof soundSettings] as string,
-      );
-      audio.volume = 0.3;
-      audio.play().catch(() => {});
-      return;
-    } catch {
-      // Fall back to default
-    }
-  }
-
-  // Default beep sound
-  try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-    // Higher pitch = on, lower = off
-    osc.frequency.value = on ? 480 : 340;
-    gain.gain.value = 0.12;
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.12);
-    osc.onended = () => ctx.close();
-  } catch {
-    // ignore
-  }
-}
-
-// ─── Helper: play join/leave sound ───
-function playVoiceSound(type: "join" | "leave") {
-  const state = useStore.getState();
-  const soundSettings = state.soundSettings;
-  const activeServerId = state.activeServerId;
-  const servers = state.servers;
-  const activeServer = servers.find((s) => s.id === activeServerId);
-
-  const soundKey = type === "join" ? "joinSound" : "leaveSound";
-  const serverSoundKey = type === "join" ? "joinSoundUrl" : "leaveSoundUrl";
-
-  // 1. Try server-wide sound first (Admin configured)
-  const serverSoundUrl = activeServer?.config[serverSoundKey];
-  const soundChance = activeServer?.config.soundChance ?? 100;
-
-  if (serverSoundUrl) {
-    // Only play server-wide sound if chance roll is successful
-    if (Math.random() * 100 < soundChance) {
-      try {
-        // Ensure absolute URL if it's a relative path from the server
-        const { host, port } = activeServer.config;
-        if (activeServer.type === "legacy" && host && port) {
-          const fullUrl = serverSoundUrl.startsWith("http")
-            ? serverSoundUrl
-            : `${getApiUrl(host, port)}${serverSoundUrl}`;
-
-          const audio = new Audio(fullUrl);
-          audio.volume = 0.4;
-          audio.play().catch(() => {});
-          return;
-        }
-      } catch {
-        // Fall back
-      }
-    } else {
-      // Chance roll failed. We skip the server-wide sound.
-      // We still fall back to local settings/defaults though?
-      // User said "chciałbym że nie zawsze się to włączało", which usually implies
-      // they want the *feature* to be random. If chance fails, we should probably
-      // just not play ANY sound for this event, or fall back to default?
-      // Usually "chance" on a custom sound means "maybe it plays, maybe it doesn't".
-      // I'll skip playing anything if the chance roll for the server sound fails.
-      return;
-    }
-  }
-
-  // 2. Try local user preference
-  if (soundSettings[soundKey]) {
-    try {
-      const audio = new Audio(soundSettings[soundKey] as string);
-      audio.volume = 0.4;
-      audio.play().catch(() => {});
-      return;
-    } catch {
-      // Fall back to default
-    }
-  }
-
-  // 3. Default generated sound
-  try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-
-    if (type === "join") {
-      // Rising tone for join
-      osc.frequency.setValueAtTime(400, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
-    } else {
-      // Falling tone for leave
-      osc.frequency.setValueAtTime(600, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.1);
-    }
-
-    gain.gain.value = 0.15;
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.15);
-    osc.onended = () => ctx.close();
-  } catch {
-    // ignore
-  }
-}
-
-// ─── Helper: broadcast talking state ───
-function broadcastTalkingState(talking: boolean) {
-  if (talking === isTalkingLocal) return; // debounce
-  isTalkingLocal = talking;
-
-  const channelId = currentChannelId;
-  if (ws?.readyState === WebSocket.OPEN && channelId) {
-    ws.send(
-      JSON.stringify({
-        type: "voice_talking",
-        channel_id: channelId,
-        user_id: localUserId,
-        talking,
-      }),
-    );
-  }
-  useStore.getState().setTalking(localUserId, talking);
-}
-
-// ─── Helper: start VAD ───
-function startVAD(stream: MediaStream) {
-  stopVAD();
-  try {
-    audioContext = new AudioContext();
-    const source = audioContext.createMediaStreamSource(stream);
-    analyserNode = audioContext.createAnalyser();
-    analyserNode.fftSize = 512;
-    analyserNode.smoothingTimeConstant = 0.4;
-    source.connect(analyserNode);
-
-    const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
-    const THRESHOLD = 15; // volume threshold (0-255)
-    let silenceFrames = 0;
-    const SILENCE_DELAY = 8; // ~8 * 50ms = 400ms of silence to stop
-
-    vadInterval = setInterval(() => {
-      if (!analyserNode) return;
-      analyserNode.getByteFrequencyData(dataArray); // Average volume across frequency bins
-      let sum = 0;
-      for (const value of dataArray) {
-        sum += value;
-      }
-      const avg = sum / dataArray.length;
-
-      if (avg > THRESHOLD) {
-        silenceFrames = 0;
-        broadcastTalkingState(true);
-      } else {
-        silenceFrames++;
-        if (silenceFrames >= SILENCE_DELAY) {
-          broadcastTalkingState(false);
-        }
-      }
-    }, 50);
-  } catch (e) {
-    console.error("VAD init failed", e);
-  }
-}
-
-function stopVAD() {
-  if (vadInterval) {
-    clearInterval(vadInterval);
-    vadInterval = null;
-  }
-  if (audioContext) {
-    audioContext.close().catch(() => {});
-    audioContext = null;
-  }
-  analyserNode = null;
-  isTalkingLocal = false;
-}
-
-// ─── Helper: create peer connection ───
-function createPeerConnection(
-  remoteUserId: string,
-  channelId: string,
-): RTCPeerConnection {
-  let pc = peerConnections.get(remoteUserId);
-  if (pc) return pc;
-
-  pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-  makingOffer.set(remoteUserId, false);
-
-  // Add ALL current local tracks
-  localStream?.getTracks().forEach((track) => {
-    pc!.addTrack(track, localStream!);
-  });
-  if (displayStream) {
-    displayStream.getVideoTracks().forEach((track) => {
-      const sender = pc!.addTrack(track, displayStream!);
-      screenTrackSenders.set(remoteUserId, sender);
-    });
-  }
-
-  pc.ontrack = (event) => {
-    const stream = event.streams[0];
-    if (!stream) return;
-    const track = event.track;
-    if (track.kind === "audio") {
-      let audio = audioElements.get(remoteUserId);
-      if (!audio) {
-        audio = document.createElement("audio");
-        audio.autoplay = true;
-        audio.setAttribute("playsinline", "");
-        document.body.appendChild(audio);
-        audioElements.set(remoteUserId, audio);
-      }
-      audio.srcObject = stream;
-    } else if (track.kind === "video") {
-      useStore.getState().addScreenShare(remoteUserId, stream);
-      track.onended = () => {
-        useStore.getState().removeScreenShare(remoteUserId);
-      };
-    }
-  };
-
-  pc.onicecandidate = (event) => {
-    if (event.candidate && ws?.readyState === WebSocket.OPEN) {
-      ws.send(
-        JSON.stringify({
-          type: "ice_candidate",
-          channel_id: channelId,
-          target_user_id: remoteUserId,
-          from_user_id: localUserId,
-          candidate: JSON.stringify(event.candidate),
-        }),
-      );
-    }
-  };
-  pc.onnegotiationneeded = async () => {
-    try {
-      if (makingOffer.get(remoteUserId)) return;
-
-      // Check if we're in a valid state to negotiate
-      if (pc!.signalingState !== "stable") {
-        console.warn(`Negotiation skipped, state: ${pc!.signalingState}`);
-        return;
-      }
-
-      makingOffer.set(remoteUserId, true);
-
-      // Double-check state before creating offer
-      if (pc!.signalingState !== "stable") {
-        makingOffer.set(remoteUserId, false);
-        return;
-      }
-
-      const offer = await pc!.createOffer();
-
-      // Check state again before setting local description
-      if (pc!.signalingState !== "stable") {
-        makingOffer.set(remoteUserId, false);
-        return;
-      }
-
-      await pc!.setLocalDescription(offer);
-
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "voice_offer",
-            channel_id: channelId,
-            target_user_id: remoteUserId,
-            from_user_id: localUserId,
-            sdp: JSON.stringify(pc!.localDescription),
-          }),
-        );
-      }
-    } catch (err) {
-      if (
-        err instanceof Error &&
-        (err.name === "InvalidStateError" || err.name === "InvalidAccessError")
-      ) {
-        console.warn("Negotiation error (ignored):", err.message);
-        return;
-      }
-      console.error("Negotiation failed", err);
-    } finally {
-      makingOffer.set(remoteUserId, false);
-    }
-  };
-
-  peerConnections.set(remoteUserId, pc);
-  return pc;
-}
-
-// ─── Helper: cleanup everything ───
-function cleanupAll() {
-  peerConnections.forEach((pc) => {
-    try {
-      pc.close();
-    } catch {
-      // Ignore errors during cleanup
-    }
-  });
-  peerConnections.clear();
-  makingOffer.clear();
-
-  localStream?.getTracks().forEach((t) => {
-    try {
-      t.stop();
-    } catch {
-      // Ignore errors during cleanup
-    }
-  });
-  localStream = null;
-
-  displayStream?.getTracks().forEach((t) => {
-    try {
-      t.stop();
-    } catch {
-      // Ignore errors during cleanup
-    }
-  });
-  displayStream = null;
-
-  audioElements.forEach((el) => {
-    try {
-      el.srcObject = null;
-      el.remove();
-    } catch {
-      // Ignore errors during cleanup
-    }
-  });
-  audioElements.clear();
-  screenTrackSenders.clear();
-
-  stopVAD();
-  broadcastTalkingState(false);
-  isMutedLocal = false;
-  isDeafenedLocal = false;
-
-  useStore.getState().removeScreenShare(localUserId);
-
-  if (ws) {
-    ws.onclose = null;
-    ws.close();
-    ws = null;
-  }
-
-  currentChannelId = null;
-}
+import { type WsServerMessage, getWsUrl } from "../types";
+import {
+  ws, localStream, displayStream, localUserId, currentChannelId,
+  peerConnections, makingOffer, audioElements, screenTrackSenders,
+  isMutedLocal, isDeafenedLocal,
+  setWs, setLocalStream, setDisplayStream, setLocalUserId, setCurrentChannelId,
+  setIsMutedLocal, setIsDeafenedLocal,
+  playToggleSound, playVoiceSound, broadcastTalkingState,
+  startVAD, stopVAD, createPeerConnection, cleanupAll,
+} from "./voiceHelpers";
 
 // ─── The hook ───
 export function useVoice() {
@@ -417,6 +27,7 @@ export function useVoice() {
   const isScreenSharing = displayStream !== null;
 
   const activeServer = servers.find((s) => s.id === activeServerId);
+
   // PTT key handling
   useEffect(() => {
     if (!voiceChannelId) return; // not in voice, no need for key listeners
@@ -488,14 +99,14 @@ export function useVoice() {
           audio: true,
           video: false,
         });
-        localStream = stream;
+        setLocalStream(stream);
       } catch (err) {
         console.error("Mic failed", err);
         return;
       }
 
       setVoiceChannel(channelId);
-      currentChannelId = channelId;
+      setCurrentChannelId(channelId);
 
       if (activeServer.type === "p2p") {
         const docId = activeServer.config.p2p?.namespaceId;
@@ -513,7 +124,7 @@ export function useVoice() {
           authToken ? `?token=${authToken}` : ""
         }`;
         const socket = new WebSocket(wsUrl);
-        ws = socket;
+        setWs(socket);
 
         socket.onopen = () => {
           // Wait for identity message
@@ -523,7 +134,7 @@ export function useVoice() {
           const data: WsServerMessage = JSON.parse(event.data);
 
           if (data.type === "identity") {
-            localUserId = data.user_id; // Register joining voice on server
+            setLocalUserId(data.user_id);
             socket.send(
               JSON.stringify({
                 type: "join_voice",
@@ -717,7 +328,7 @@ export function useVoice() {
         };
 
         socket.onclose = () => {
-          ws = null;
+          setWs(null);
         };
       } catch (err) {
         console.error("WS Voice failed", err);
@@ -736,9 +347,10 @@ export function useVoice() {
       setTalking,
     ],
   );
+
   const stopScreenShareInternal = () => {
     displayStream?.getTracks().forEach((t) => t.stop());
-    displayStream = null;
+    setDisplayStream(null);
     useStore.getState().removeScreenShare(localUserId);
     peerConnections.forEach((pc, remoteUserId) => {
       const sender = screenTrackSenders.get(remoteUserId);
@@ -760,7 +372,7 @@ export function useVoice() {
         video: true,
         audio: true,
       });
-      displayStream = stream;
+      setDisplayStream(stream);
       useStore.getState().addScreenShare(localUserId, stream);
 
       const videoTrack = stream.getVideoTracks()[0];
@@ -782,6 +394,7 @@ export function useVoice() {
   const stopScreenShare = useCallback(() => {
     stopScreenShareInternal();
   }, []);
+
   const leaveVoice = useCallback(() => {
     if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
       try {
@@ -810,12 +423,13 @@ export function useVoice() {
   }, [setVoiceChannel, setVoiceMembers]);
 
   const toggleMute = useCallback(() => {
-    isMutedLocal = !isMutedLocal;
+    setIsMutedLocal(!isMutedLocal);
     playToggleSound(!isMutedLocal);
     localStream?.getAudioTracks().forEach((t) => {
-      t.enabled = !isMutedLocal;
+      t.enabled = isMutedLocal; // was !isMutedLocal before toggle, now it's toggled
     });
-    if (isMutedLocal) {
+    if (!isMutedLocal) {
+      // just toggled to muted
       broadcastTalkingState(false);
       stopVAD();
     } else if (
@@ -831,7 +445,7 @@ export function useVoice() {
           type: "voice_status_update",
           channel_id: currentChannelId,
           user_id: localUserId,
-          is_muted: isMutedLocal,
+          is_muted: !isMutedLocal,
           is_deafened: isDeafenedLocal,
         }),
       );
@@ -839,22 +453,22 @@ export function useVoice() {
   }, []);
 
   const toggleDeafen = useCallback(() => {
-    isDeafenedLocal = !isDeafenedLocal;
+    setIsDeafenedLocal(!isDeafenedLocal);
     playToggleSound(!isDeafenedLocal);
     audioElements.forEach((audio) => {
-      audio.muted = isDeafenedLocal;
+      audio.muted = !isDeafenedLocal;
     });
     // Also mute mic when deafened
-    if (isDeafenedLocal && !isMutedLocal) {
-      isMutedLocal = true;
+    if (!isDeafenedLocal && !isMutedLocal) {
+      setIsMutedLocal(true);
       localStream?.getAudioTracks().forEach((t) => {
         t.enabled = false;
       });
       broadcastTalkingState(false);
       stopVAD();
-    } else if (!isDeafenedLocal && isMutedLocal) {
+    } else if (isDeafenedLocal && isMutedLocal) {
       // Un-deafen also un-mutes
-      isMutedLocal = false;
+      setIsMutedLocal(false);
       localStream?.getAudioTracks().forEach((t) => {
         t.enabled = true;
       });
@@ -873,7 +487,7 @@ export function useVoice() {
           channel_id: currentChannelId,
           user_id: localUserId,
           is_muted: isMutedLocal,
-          is_deafened: isDeafenedLocal,
+          is_deafened: !isDeafenedLocal,
         }),
       );
     }

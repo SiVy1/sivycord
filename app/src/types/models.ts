@@ -111,6 +111,8 @@ export interface InviteInfo {
 // ─── Audit log entry (from /api/audit-logs) ───
 export interface AuditLogEntry {
   id: string;
+  user_id: string;
+  user_name: string;
   action: string;
   target_name: string | null;
   details: string | null;
