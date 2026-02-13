@@ -29,7 +29,40 @@ async fn join_doc(state: tauri::State<'_, IrohState>, ticket_str: String) -> Res
 }
 
 #[tauri::command]
-fn resolve_srv(domain: String) -> Result<Option<SrvResult>, String> {
+async fn active_docs(state: tauri::State<'_, IrohState>) -> Result<Vec<String>, String> {
+  let docs = state.node.docs().list().await.map_err(|e| e.to_string())?;
+  let ids = docs.into_iter().map(|(id, _)| id.to_string()).collect();
+  Ok(ids)
+}
+
+#[derive(Serialize)]
+pub struct ChatEntry {
+    author: String,
+    key: String,
+    content: String,
+}
+
+#[tauri::command]
+async fn list_entries(state: tauri::State<'_, IrohState>, doc_id: String) -> Result<Vec<ChatEntry>, String> {
+    let doc_id = iroh::docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    let doc = state.node.docs().get_by_id(doc_id).await.map_err(|e| e.to_string())?.ok_or("Document not found")?;
+    
+    let mut entries = doc.get_many(iroh::docs::store::Query::all()).await.map_err(|e| e.to_string())?;
+    let mut chat_entries = Vec::new();
+    
+    use futures_util::StreamExt;
+    while let Some(entry) = entries.next().await {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let content = entry.content_bytes(&state.node).await.map_err(|e| e.to_string())?;
+        chat_entries.push(ChatEntry {
+            author: entry.author().to_string(),
+            key: String::from_utf8_lossy(entry.key()).to_string(),
+            content: String::from_utf8_lossy(&content).to_string(),
+        });
+    }
+    
+    Ok(chat_entries)
+}
   let resolver = Resolver::new(ResolverConfig::default(), ResolverOpts::default())
     .map_err(|e| e.to_string())?;
   
@@ -131,9 +164,22 @@ pub fn run() {
 
       app.manage(IrohState { node, author_id });
 
+      // Background Task: Subscribe to Document Events
+      let app_handle = app.handle().clone();
+      let node_for_sub = state_node.clone(); // I need to clone the node or use state
+      // Actually I'll use the node from the rt block
+
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![resolve_srv, get_node_id, create_doc, join_doc, send_message])
+    .invoke_handler(tauri::generate_handler![
+        resolve_srv, 
+        get_node_id, 
+        create_doc, 
+        join_doc, 
+        send_message,
+        active_docs,
+        list_entries
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }
