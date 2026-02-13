@@ -65,6 +65,13 @@ interface AppState {
   updateVoiceSettings: (settings: Partial<AppState["voiceSettings"]>) => void;
   updateSoundSettings: (settings: Partial<AppState["soundSettings"]>) => void;
   updateServerConfig: (serverId: string, config: Partial<ServerConfig>) => void;
+  // Iroh P2P
+  nodeId: string | null;
+  irohReady: boolean;
+  fetchNodeId: () => Promise<void>;
+  createP2PServer: (name: string) => Promise<void>;
+  joinP2PServer: (name: string, ticket: string) => Promise<void>;
+
   logout: () => void;
 }
 
@@ -184,6 +191,64 @@ export const useStore = create<AppState>()(
               : srv,
           ),
         })),
+      // Iroh
+      nodeId: null,
+      irohReady: false,
+      fetchNodeId: async () => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const nodeId = await invoke<string>("get_node_id");
+          set({ nodeId, irohReady: true });
+        } catch (err) {
+          console.error("Failed to fetch NodeID", err);
+        }
+      },
+      createP2PServer: async (name) => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const ticket = await invoke<string>("create_doc");
+          const namespaceId = ticket.split(":")[0]; // Simplification for now
+          const newServer: ServerEntry = {
+            id: namespaceId,
+            type: "p2p",
+            displayName: name,
+            initial: name[0].toUpperCase(),
+            config: {
+              p2p: { ticket, namespaceId },
+            },
+          };
+          set((s) => ({
+            servers: [...s.servers, newServer],
+            activeServerId: namespaceId,
+          }));
+        } catch (err) {
+          console.error("Failed to create P2P server", err);
+        }
+      },
+      joinP2PServer: async (name, ticket) => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          const namespaceId = await invoke<string>("join_doc", {
+            ticketStr: ticket,
+          });
+          const newServer: ServerEntry = {
+            id: namespaceId,
+            type: "p2p",
+            displayName: name,
+            initial: name[0].toUpperCase(),
+            config: {
+              p2p: { ticket, namespaceId },
+            },
+          };
+          set((s) => ({
+            servers: [...s.servers, newServer],
+            activeServerId: namespaceId,
+          }));
+        } catch (err) {
+          console.error("Failed to join P2P server", err);
+        }
+      },
+
       logout: () =>
         set((s) => {
           if (!s.activeServerId) return s;

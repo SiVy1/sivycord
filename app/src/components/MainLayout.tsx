@@ -12,6 +12,40 @@ export function MainLayout() {
 
   const activeServer = servers.find((s) => s.id === activeServerId);
 
+  const fetchNodeId = useStore((s) => s.fetchNodeId);
+  const addMessage = useStore((s) => s.addMessage);
+
+  // Initialize Iroh
+  useEffect(() => {
+    fetchNodeId();
+  }, [fetchNodeId]);
+
+  // Listen for Iroh messages
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    const setupListener = async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<any>("iroh-entry", (event) => {
+        const payload = event.payload;
+        // Map Iroh entry to Message type
+        addMessage({
+          id: payload.key,
+          channelId: "p2p", // For now, p2p has one flat channel
+          userId: payload.author,
+          userName: payload.author.substring(0, 8),
+          content: payload.content,
+          createdAt: new Date().toISOString(),
+        });
+      });
+    };
+
+    setupListener();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [addMessage]);
+
   // Auto-fetch profile on server switch if authToken exists
   useEffect(() => {
     if (!activeServer || !activeServer.config.authToken) {

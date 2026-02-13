@@ -28,20 +28,27 @@ export interface Attachment {
   url: string;
 }
 
+export interface P2PServerConfig {
+  ticket: string;
+  namespaceId: string;
+}
+
 export interface ServerConfig {
-  host: string;
-  port: number;
-  inviteCode: string;
+  host?: string;
+  port?: number;
+  inviteCode?: string;
   userId?: string;
   serverName?: string;
   authToken?: string;
   joinSoundUrl?: string | null;
   leaveSoundUrl?: string | null;
   soundChance?: number;
+  p2p?: P2PServerConfig;
 }
 
 export interface ServerEntry {
   id: string;
+  type: "legacy" | "p2p";
   config: ServerConfig;
   displayName: string;
   initial: string;
