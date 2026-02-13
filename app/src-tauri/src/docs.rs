@@ -5,7 +5,9 @@ use crate::roles;
 
 #[tauri::command]
 pub async fn get_node_id(state: tauri::State<'_, IrohState>) -> Result<String, String> {
-    Ok(state.node.node_id().to_string())
+    let id = state.node.node_id().to_string();
+    log::info!("[P2P] get_node_id: {}", id);
+    Ok(id)
 }
 
 #[derive(serde::Serialize)]
@@ -16,10 +18,16 @@ pub struct CreateDocResult {
 
 #[tauri::command]
 pub async fn create_doc(state: tauri::State<'_, IrohState>) -> Result<CreateDocResult, String> {
-    state.on_rt(|node, author_id| async move {
+    log::info!("[P2P] create_doc: starting");
+    let result = state.on_rt(|node, author_id| async move {
         let client = node.client();
-        let doc = client.docs().create().await.map_err(|e| e.to_string())?;
+        log::info!("[P2P] create_doc: creating new document");
+        let doc = client.docs().create().await.map_err(|e| {
+            log::error!("[P2P] create_doc: failed to create doc: {}", e);
+            e.to_string()
+        })?;
         let namespace_id = doc.id().to_string();
+        log::info!("[P2P] create_doc: doc created with namespace_id={}", namespace_id);
 
         let owner_id = node.node_id().to_string();
         doc.set_bytes(
@@ -28,16 +36,40 @@ pub async fn create_doc(state: tauri::State<'_, IrohState>) -> Result<CreateDocR
             owner_id.as_bytes().to_vec(),
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            log::error!("[P2P] create_doc: failed to set owner: {}", e);
+            e.to_string()
+        })?;
+        log::info!("[P2P] create_doc: owner set to {}", owner_id);
 
         channels::create_default_channels(&node, author_id, &doc).await?;
         roles::create_default_roles(author_id, &doc).await?;
+        log::info!("[P2P] create_doc: default channels & roles created");
+
+        // Generate a shareable ticket so others can join
+        let ticket = doc
+            .share(
+                iroh::client::docs::ShareMode::Write,
+                iroh_base::node_addr::AddrInfoOptions::RelayAndAddresses,
+            )
+            .await
+            .map_err(|e| {
+                log::error!("[P2P] create_doc: failed to generate ticket: {}", e);
+                e.to_string()
+            })?;
+        let ticket_str = ticket.to_string();
+        log::info!("[P2P] create_doc: ticket generated (len={})", ticket_str.len());
 
         Ok(CreateDocResult {
             namespace_id,
-            ticket: String::new(),
+            ticket: ticket_str,
         })
-    }).await
+    }).await;
+    match &result {
+        Ok(r) => log::info!("[P2P] create_doc: success ns={}", r.namespace_id),
+        Err(e) => log::error!("[P2P] create_doc: failed: {}", e),
+    }
+    result
 }
 
 /// Get a shareable ticket for an existing doc.
@@ -46,24 +78,40 @@ pub async fn get_doc_ticket(
     state: tauri::State<'_, IrohState>,
     doc_id: String,
 ) -> Result<String, String> {
-    let doc_id_parsed = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    log::info!("[P2P] get_doc_ticket: doc_id={}", doc_id);
+    let doc_id_parsed = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| {
+        log::error!("[P2P] get_doc_ticket: invalid doc_id: {}", e);
+        e.to_string()
+    })?;
     state.on_rt(move |node, _author_id| async move {
         let client = node.client();
         let doc = client
             .docs()
             .open(doc_id_parsed)
             .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "Document not found".to_string())?;
+            .map_err(|e| {
+                log::error!("[P2P] get_doc_ticket: failed to open doc: {}", e);
+                e.to_string()
+            })?
+            .ok_or_else(|| {
+                log::error!("[P2P] get_doc_ticket: document not found");
+                "Document not found".to_string()
+            })?;
 
+        log::info!("[P2P] get_doc_ticket: generating share ticket");
         let ticket = doc
             .share(
                 iroh::client::docs::ShareMode::Write,
-                iroh_base::node_addr::AddrInfoOptions::Relay,
+                iroh_base::node_addr::AddrInfoOptions::RelayAndAddresses,
             )
             .await
-            .map_err(|e| e.to_string())?;
-        Ok(ticket.to_string())
+            .map_err(|e| {
+                log::error!("[P2P] get_doc_ticket: share failed: {}", e);
+                e.to_string()
+            })?;
+        let ticket_str = ticket.to_string();
+        log::info!("[P2P] get_doc_ticket: ticket generated (len={})", ticket_str.len());
+        Ok(ticket_str)
     }).await
 }
 
@@ -105,16 +153,32 @@ pub async fn join_doc(
     state: tauri::State<'_, IrohState>,
     ticket_str: String,
 ) -> Result<String, String> {
-    let ticket = iroh_docs::DocTicket::from_str(&ticket_str).map_err(|e| e.to_string())?;
-    state.on_rt(move |node, _author_id| async move {
+    log::info!("[P2P] join_doc: parsing ticket (len={})", ticket_str.len());
+    let ticket = iroh_docs::DocTicket::from_str(&ticket_str).map_err(|e| {
+        log::error!("[P2P] join_doc: invalid ticket: {}", e);
+        e.to_string()
+    })?;
+    log::info!("[P2P] join_doc: ticket parsed OK, importing doc...");
+    let result = state.on_rt(move |node, _author_id| async move {
         let client = node.client();
+        log::info!("[P2P] join_doc: calling docs().import()");
         let doc = client
             .docs()
             .import(ticket)
             .await
-            .map_err(|e| e.to_string())?;
-        Ok(doc.id().to_string())
-    }).await
+            .map_err(|e| {
+                log::error!("[P2P] join_doc: import failed: {}", e);
+                e.to_string()
+            })?;
+        let ns_id = doc.id().to_string();
+        log::info!("[P2P] join_doc: import succeeded, namespace_id={}", ns_id);
+        Ok(ns_id)
+    }).await;
+    match &result {
+        Ok(ns) => log::info!("[P2P] join_doc: completed successfully, ns={}", ns),
+        Err(e) => log::error!("[P2P] join_doc: failed: {}", e),
+    }
+    result
 }
 
 #[tauri::command]

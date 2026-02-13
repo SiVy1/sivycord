@@ -37,11 +37,14 @@ impl IrohState {
         Fut: std::future::Future<Output = Result<T, String>> + Send + 'static,
         T: Send + 'static,
     {
+        log::info!("[P2P] on_rt: spawning task on iroh runtime");
         let node = self.node.clone();
         let author_id = self.author_id;
-        self._runtime
+        let result = self._runtime
             .spawn(f(node, author_id))
             .await
-            .map_err(|e| format!("Task join error: {}", e))?
+            .map_err(|e| format!("Task join error: {}", e))?;
+        log::info!("[P2P] on_rt: task completed");
+        result
     }
 }

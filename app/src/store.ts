@@ -45,6 +45,10 @@ interface AppState {
   voiceMembers: VoicePeer[];
   screenShares: Map<string, MediaStream>;
   talkingUsers: Set<string>; // Who is currently talking
+  isMuted: boolean;
+  isDeafened: boolean;
+  setMuted: (v: boolean) => void;
+  setDeafened: (v: boolean) => void;
   voiceSettings: {
     mode: "activity" | "ptt";
     pttKey: string;
@@ -135,8 +139,12 @@ export const useStore = create<AppState>()(
       voiceChannelId: null,
       voiceMembers: [],
       screenShares: new Map(),
+      isMuted: false,
+      isDeafened: false,
+      setMuted: (v) => set({ isMuted: v }),
+      setDeafened: (v) => set({ isDeafened: v }),
       setVoiceChannel: (id) =>
-        set({ voiceChannelId: id, voiceMembers: [], screenShares: new Map() }),
+        set({ voiceChannelId: id, voiceMembers: [], screenShares: new Map(), isMuted: false, isDeafened: false }),
       setVoiceMembers: (members) => set({ voiceMembers: members }),
       addVoiceMember: (peer) =>
         set((s) => ({
@@ -208,8 +216,16 @@ export const useStore = create<AppState>()(
       },
       p2pVoiceActive: false,
       createP2PServer: async (name: string) => {
+        console.log("[P2P] createP2PServer: starting, name=", name);
         const { invoke } = await import("@tauri-apps/api/core");
-        const result = await invoke<{ namespace_id: string; ticket: string }>("create_doc");
+        console.log("[P2P] createP2PServer: calling create_doc...");
+        const result = await Promise.race([
+          invoke<{ namespace_id: string; ticket: string }>("create_doc"),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("create_doc timed out after 30s")), 30000)
+          ),
+        ]);
+        console.log("[P2P] createP2PServer: doc created, namespace_id=", result.namespace_id, "ticket_len=", result.ticket.length);
         const namespaceId = result.namespace_id;
         const ticket = result.ticket;
         const server: ServerEntry = {
@@ -238,10 +254,16 @@ export const useStore = create<AppState>()(
         }));
       },
       joinP2PServer: async (name: string, ticket: string) => {
+        console.log("[P2P] joinP2PServer: starting, ticket_len=", ticket.length);
         const { invoke } = await import("@tauri-apps/api/core");
-        const namespaceId = await invoke<string>("join_doc", {
-          ticketStr: ticket,
-        });
+        console.log("[P2P] joinP2PServer: calling join_doc...");
+        const namespaceId = await Promise.race([
+          invoke<string>("join_doc", { ticketStr: ticket }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("join_doc timed out after 30s")), 30000)
+          ),
+        ]);
+        console.log("[P2P] joinP2PServer: joined, namespace_id=", namespaceId);
         const newServer: ServerEntry = {
           id: namespaceId,
           type: "p2p",

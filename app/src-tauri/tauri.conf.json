@@ -23,13 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://*:* https://*:* ws://*:* wss://*:*;",
-      "pattern": {
-        "use": "isolation",
-        "options": {
-          "dir": "src/isolation.html"
-        }
-      }
+      "csp": "default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss:;"
     }
   },
   "bundle": {

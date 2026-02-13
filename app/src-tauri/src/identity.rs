@@ -29,11 +29,21 @@ pub async fn set_identity(
     display_name: String,
     bio: Option<String>,
 ) -> Result<P2PIdentity, String> {
-    let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    log::info!("[P2P] set_identity: doc_id={}, display_name={}", doc_id, display_name);
+    let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| {
+        log::error!("[P2P] set_identity: invalid doc_id: {}", e);
+        e.to_string()
+    })?;
     state.on_rt(move |node, author_id| async move {
         let client = node.client();
-        let doc = client.docs().open(ns).await.map_err(|e| e.to_string())?
-            .ok_or_else(|| "Document not found".to_string())?;
+        let doc = client.docs().open(ns).await.map_err(|e| {
+            log::error!("[P2P] set_identity: failed to open doc: {}", e);
+            e.to_string()
+        })?
+            .ok_or_else(|| {
+                log::error!("[P2P] set_identity: document not found");
+                "Document not found".to_string()
+            })?;
         let node_id = node.node_id().to_string();
 
         let identity = P2PIdentity {
@@ -53,8 +63,12 @@ pub async fn set_identity(
             json.as_bytes().to_vec(),
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            log::error!("[P2P] set_identity: failed to write: {}", e);
+            e.to_string()
+        })?;
 
+        log::info!("[P2P] set_identity: identity saved for node_id={}", node_id);
         Ok(identity)
     }).await
 }

@@ -423,13 +423,15 @@ export function useVoice() {
   }, [setVoiceChannel, setVoiceMembers]);
 
   const toggleMute = useCallback(() => {
-    setIsMutedLocal(!isMutedLocal);
-    playToggleSound(!isMutedLocal);
+    const wasMuted = isMutedLocal;
+    const newMuted = !wasMuted;
+    setIsMutedLocal(newMuted);
+    useStore.getState().setMuted(newMuted);
+    playToggleSound(newMuted);
     localStream?.getAudioTracks().forEach((t) => {
-      t.enabled = isMutedLocal; // was !isMutedLocal before toggle, now it's toggled
+      t.enabled = !newMuted;
     });
-    if (!isMutedLocal) {
-      // just toggled to muted
+    if (newMuted) {
       broadcastTalkingState(false);
       stopVAD();
     } else if (
@@ -445,7 +447,7 @@ export function useVoice() {
           type: "voice_status_update",
           channel_id: currentChannelId,
           user_id: localUserId,
-          is_muted: !isMutedLocal,
+          is_muted: newMuted,
           is_deafened: isDeafenedLocal,
         }),
       );
@@ -453,22 +455,27 @@ export function useVoice() {
   }, []);
 
   const toggleDeafen = useCallback(() => {
-    setIsDeafenedLocal(!isDeafenedLocal);
-    playToggleSound(!isDeafenedLocal);
+    const wasDeafened = isDeafenedLocal;
+    const newDeafened = !wasDeafened;
+    setIsDeafenedLocal(newDeafened);
+    useStore.getState().setDeafened(newDeafened);
+    playToggleSound(newDeafened);
     audioElements.forEach((audio) => {
-      audio.muted = !isDeafenedLocal;
+      audio.muted = newDeafened;
     });
     // Also mute mic when deafened
-    if (!isDeafenedLocal && !isMutedLocal) {
+    if (newDeafened && !isMutedLocal) {
       setIsMutedLocal(true);
+      useStore.getState().setMuted(true);
       localStream?.getAudioTracks().forEach((t) => {
         t.enabled = false;
       });
       broadcastTalkingState(false);
       stopVAD();
-    } else if (isDeafenedLocal && isMutedLocal) {
+    } else if (!newDeafened && isMutedLocal) {
       // Un-deafen also un-mutes
       setIsMutedLocal(false);
+      useStore.getState().setMuted(false);
       localStream?.getAudioTracks().forEach((t) => {
         t.enabled = true;
       });
@@ -487,11 +494,14 @@ export function useVoice() {
           channel_id: currentChannelId,
           user_id: localUserId,
           is_muted: isMutedLocal,
-          is_deafened: !isDeafenedLocal,
+          is_deafened: newDeafened,
         }),
       );
     }
   }, []);
+
+  const isMuted = useStore((s) => s.isMuted);
+  const isDeafened = useStore((s) => s.isDeafened);
 
   return {
     joinVoice,
@@ -501,7 +511,7 @@ export function useVoice() {
     isScreenSharing,
     toggleMute,
     toggleDeafen,
-    isMuted: isMutedLocal,
-    isDeafened: isDeafenedLocal,
+    isMuted,
+    isDeafened,
   };
 }

@@ -20,7 +20,17 @@ pub fn run() {
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
+            .level(log::LevelFilter::Warn)
+            // Show our own [P2P] info logs from all app modules
+            .level_for("app_lib", log::LevelFilter::Info)
+            .level_for("app_lib::docs", log::LevelFilter::Info)
+            .level_for("app_lib::identity", log::LevelFilter::Info)
+            .level_for("app_lib::channels", log::LevelFilter::Info)
+            .level_for("app_lib::roles", log::LevelFilter::Info)
+            .level_for("app_lib::voice", log::LevelFilter::Info)
+            .level_for("app_lib::moq", log::LevelFilter::Info)
+            .level_for("app_lib::dns", log::LevelFilter::Info)
+            .level_for("app_lib::state", log::LevelFilter::Info)
             .build(),
         )?;
       }
@@ -57,6 +67,8 @@ pub fn run() {
             .await
             .map_err(|e| format!("Failed to spawn iroh node: {}", e))?;
 
+        log::info!("[P2P] iroh node spawned, node_id={}", node.node_id());
+
         // Use the default author (creates one if it doesn't exist)
         let author_id = node
           .client()
@@ -64,6 +76,8 @@ pub fn run() {
           .default()
           .await
           .map_err(|e| format!("Failed to get default author: {}", e))?;
+
+        log::info!("[P2P] default author_id={}", author_id);
 
         Ok((node, author_id))
       });
