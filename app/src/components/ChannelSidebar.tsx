@@ -311,7 +311,7 @@ export function ChannelSidebar() {
       <div className="h-14 flex items-center px-3 border-t border-border gap-2 bg-bg-surface/50">
         {currentUser?.avatar_url ? (
           <img
-            src={`${getApiUrl(activeServer!.config.host, activeServer!.config.port)}${currentUser.avatar_url}`}
+            src={`${getApiUrl(activeServer?.config.host, activeServer?.config.port)}${currentUser.avatar_url}`}
             className="w-8 h-8 rounded-full object-cover border border-border"
             alt={currentUser.display_name}
           />

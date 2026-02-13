@@ -33,7 +33,7 @@ function ManageUserRolesModal({
       if (hasRole(roleId)) {
         // Remove role
         const res = await fetch(
-          `http://${server.config.host}:${server.config.port}/api/users/${userId}/roles/${roleId}`,
+          `${getApiUrl(server.config.host, server.config.port)}/api/users/${userId}/roles/${roleId}`,
           {
             method: "DELETE",
             headers: {
@@ -45,7 +45,7 @@ function ManageUserRolesModal({
       } else {
         // Add role
         const res = await fetch(
-          `http://${server.config.host}:${server.config.port}/api/roles/assign`,
+          `${getApiUrl(server.config.host, server.config.port)}/api/roles/assign`,
           {
             method: "POST",
             headers: {

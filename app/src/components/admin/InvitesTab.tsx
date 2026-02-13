@@ -21,7 +21,7 @@ export function InvitesTab({ server }: { server: ServerEntry }) {
     if (!confirm("Are you sure you want to revoke this invite?")) return;
     try {
       await fetch(
-        `http://${server.config.host}:${server.config.port}/api/invites/${code}`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/invites/${code}`,
         { method: "DELETE" },
       );
       fetchInvites();

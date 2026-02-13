@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ServerEntry } from "../types";
 import { getApiUrl } from "../types";
 
 export function CreateChannelModal({
@@ -6,7 +7,7 @@ export function CreateChannelModal({
   onClose,
   onCreated,
 }: {
-  server: { config: { host: string; port: number } };
+  server: ServerEntry;
   onClose: () => void;
   onCreated: () => void;
 }) {

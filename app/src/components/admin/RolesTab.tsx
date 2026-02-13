@@ -87,7 +87,7 @@ function CreateRoleModal({
 
     try {
       const res = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/roles`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/roles`,
         {
           method: "POST",
           headers: {
@@ -219,7 +219,7 @@ function EditRoleModal({
 
     try {
       const res = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/roles/${role.id}`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/roles/${role.id}`,
         {
           method: "PUT",
           headers: {
@@ -252,7 +252,7 @@ function EditRoleModal({
 
     try {
       const res = await fetch(
-        `http://${server.config.host}:${server.config.port}/api/roles/${role.id}`,
+        `${getApiUrl(server.config.host, server.config.port)}/api/roles/${role.id}`,
         {
           method: "DELETE",
           headers: {

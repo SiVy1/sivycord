@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useStore } from "../store";
-import type { Role, ServerEntry } from "../types";
+import type { Role } from "../types";
 import { PERMISSIONS, hasPermission, getApiUrl } from "../types";
 import { RolesTab } from "./admin/RolesTab";
 import { UsersTab } from "./admin/UsersTab";

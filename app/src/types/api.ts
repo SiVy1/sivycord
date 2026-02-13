@@ -11,9 +11,9 @@ export function decodeToken(encoded: string): ConnectionToken {
   return JSON.parse(json);
 }
 
-export function getApiUrl(host: string, port: number): string {
+export function getApiUrl(host?: string, port?: number): string {
   const protocol = port === 443 ? "https" : "http";
-  return `${protocol}://${host}:${port}`;
+  return `${protocol}://${host ?? "localhost"}:${port ?? 80}`;
 }
 
 export function getWsUrl(host: string, port: number): string {

@@ -8,7 +8,6 @@ import {
   type WsServerMessage,
   type ChatEntry,
   type ApiMessage,
-  type ServerEntry,
   getApiUrl,
   getWsUrl,
 } from "../types";
@@ -581,7 +580,7 @@ export function ChatArea() {
                 </div>
               )}
               <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
-                <MessageContent content={msg.content} server={activeServer} />
+                <MessageContent content={msg.content} server={activeServer!} />
               </div>
             </div>
           );
