@@ -1,0 +1,127 @@
+// ─── WebSocket Messages ───
+
+import type { VoicePeer } from "./models";
+
+export type WsClientMessage =
+  | { type: "join_channel"; channel_id: string }
+  | { type: "leave_channel"; channel_id: string }
+  | {
+      type: "send_message";
+      channel_id: string;
+      content: string;
+      user_id: string;
+      user_name: string;
+    }
+  | {
+      type: "join_voice";
+      channel_id: string;
+      user_id: string;
+      user_name: string;
+    }
+  | { type: "leave_voice"; channel_id: string; user_id: string }
+  | {
+      type: "voice_offer";
+      channel_id: string;
+      target_user_id: string;
+      from_user_id: string;
+      sdp: string;
+    }
+  | {
+      type: "voice_answer";
+      channel_id: string;
+      target_user_id: string;
+      from_user_id: string;
+      sdp: string;
+    }
+  | {
+      type: "ice_candidate";
+      channel_id: string;
+      target_user_id: string;
+      from_user_id: string;
+      candidate: string;
+    }
+  | {
+      type: "voice_talking";
+      channel_id: string;
+      user_id: string;
+      talking: boolean;
+    }
+  | {
+      type: "voice_status_update";
+      channel_id: string;
+      user_id: string;
+      is_muted: boolean;
+      is_deafened: boolean;
+    };
+
+export type WsServerMessage =
+  | { type: "identity"; user_id: string }
+  | {
+      type: "new_message";
+      id: string;
+      channel_id: string;
+      user_id: string;
+      user_name: string;
+      avatar_url?: string | null;
+      content: string;
+      created_at: string;
+    }
+  | {
+      type: "user_joined";
+      channel_id: string;
+      user_id: string;
+      user_name: string;
+    }
+  | {
+      type: "user_left";
+      channel_id: string;
+      user_id: string;
+      user_name: string;
+    }
+  | { type: "error"; message: string }
+  | {
+      type: "voice_peer_joined";
+      channel_id: string;
+      user_id: string;
+      user_name: string;
+    }
+  | { type: "voice_peer_left"; channel_id: string; user_id: string }
+  | { type: "voice_members"; channel_id: string; members: VoicePeer[] }
+  | {
+      type: "voice_offer";
+      channel_id: string;
+      target_user_id: string;
+      from_user_id: string;
+      sdp: string;
+    }
+  | {
+      type: "voice_answer";
+      channel_id: string;
+      target_user_id: string;
+      from_user_id: string;
+      sdp: string;
+    }
+  | {
+      type: "ice_candidate";
+      channel_id: string;
+      target_user_id: string;
+      from_user_id: string;
+      candidate: string;
+    }
+  | {
+      type: "voice_talking";
+      channel_id: string;
+      user_id: string;
+      talking: boolean;
+    }
+  | {
+      type: "voice_status_update";
+      channel_id: string;
+      user_id: string;
+      is_muted: boolean;
+      is_deafened: boolean;
+    }
+  | {
+      type: "voice_state_sync";
+      voice_states: VoicePeer[];
+    };

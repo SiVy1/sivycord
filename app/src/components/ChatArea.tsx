@@ -61,21 +61,31 @@ export function ChatArea() {
       const fetchP2PHistory = async () => {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          const ticket = activeServer.config.p2p?.ticket;
-          if (!ticket) return;
-          const namespaceId = ticket.split(":")[0];
-          const entries = await invoke<any[]>("list_entries", {
+          const namespaceId = activeServer.config.p2p?.namespaceId;
+          if (!namespaceId) return;
+          const entries = await invoke<any[]>("list_p2p_channel_messages", {
             docId: namespaceId,
+            channelId: activeChannelId,
           });
 
-          const mapped = entries.map((e) => ({
-            id: e.key,
-            channelId: "p2p",
-            userId: e.author,
-            userName: e.author.substring(0, 8),
-            content: e.content,
-            createdAt: new Date().toISOString(), // Backend doesn't give timestamp yet in list_entries easily
-          }));
+          const mapped = entries.map((e) => {
+            // Try to parse the content as JSON (P2PMessage format)
+            let content = e.content;
+            let userName = e.author.substring(0, 8);
+            try {
+              const parsed = JSON.parse(e.content);
+              if (parsed.content) content = parsed.content;
+              if (parsed.author) userName = parsed.author;
+            } catch { /* raw string fallback */ }
+            return {
+              id: e.key,
+              channelId: activeChannelId,
+              userId: e.author,
+              userName,
+              content,
+              createdAt: new Date().toISOString(),
+            };
+          });
           mapped.forEach((m) => seenMsgIds.current.add(m.id));
           setMessages(mapped);
         } catch (err) {
@@ -328,10 +338,14 @@ export function ChatArea() {
     if (activeServer.type === "p2p") {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const ticket = activeServer.config.p2p?.ticket;
-        if (!ticket) return;
-        const namespaceId = ticket.split(":")[0];
-        await invoke("send_message", { docId: namespaceId, message: trimmed });
+        const namespaceId = activeServer.config.p2p?.namespaceId;
+        if (!namespaceId || !activeChannelId) return;
+        await invoke("send_p2p_channel_message", {
+          docId: namespaceId,
+          channelId: activeChannelId,
+          content: trimmed,
+          authorName: displayName || "Anonymous",
+        });
         setInput("");
       } catch (err) {
         console.error("Failed to send P2P message", err);

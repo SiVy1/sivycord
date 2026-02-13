@@ -225,6 +225,9 @@ export const useStore = create<AppState>()(
               },
             },
           };
+          // Publish DID identity to the new server
+          const dn = useStore.getState().displayName || name;
+          await invoke("set_identity", { docId: namespaceId, displayName: dn, bio: null });
           set((s) => ({
             servers: [...s.servers, server],
             activeServerId: namespaceId,
@@ -248,6 +251,9 @@ export const useStore = create<AppState>()(
               p2p: { ticket, namespaceId, isOwner: false },
             },
           };
+          // Publish DID identity to the joined server
+          const dn = useStore.getState().displayName || name;
+          await invoke("set_identity", { docId: namespaceId, displayName: dn, bio: null });
           set((s) => ({
             servers: [...s.servers, newServer],
             activeServerId: namespaceId,
@@ -259,13 +265,31 @@ export const useStore = create<AppState>()(
       startP2PVoice: async (docId: string) => {
         try {
           const { invoke } = await import("@tauri-apps/api/core");
-          await invoke("start_voice", { docId });
+          // Use MoQ voice with channel-specific topic
+          const channelId = useStore.getState().voiceChannelId || "voice-lounge";
+          await invoke("moq_join_voice", { docId, channelId });
+          await invoke("moq_start_voice", { docId, channelId });
           set({ p2pVoiceActive: true });
         } catch (err) {
           console.error("Failed to start P2P voice", err);
         }
       },
       stopP2PVoice: async () => {
+        try {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("stop_voice");
+          // Also remove voice presence from the doc
+          const state = useStore.getState();
+          const server = state.servers.find((s) => s.id === state.activeServerId);
+          if (server?.config.p2p?.namespaceId && state.voiceChannelId) {
+            await invoke("moq_leave_voice", {
+              docId: server.config.p2p.namespaceId,
+              channelId: state.voiceChannelId,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to stop P2P voice", err);
+        }
         set({ p2pVoiceActive: false });
       },
 

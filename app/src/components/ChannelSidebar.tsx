@@ -4,7 +4,7 @@ import { VoiceStatusPanel } from "./VoiceStatusBar";
 import { useVoice } from "../hooks/useVoice";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AdminPanel } from "./AdminPanel";
-import { type Channel, getApiUrl } from "../types";
+import { type Channel, type P2PChannel, getApiUrl } from "../types";
 
 export function ChannelSidebar() {
   const activeServerId = useStore((s: any) => s.activeServerId);
@@ -30,28 +30,53 @@ export function ChannelSidebar() {
   );
   const voiceChannels = channels.filter((c: any) => c.channel_type === "voice");
 
-  const fetchChannels = () => {
+  const fetchChannels = async () => {
     if (!activeServer) return;
     if (activeServer.type === "p2p") {
-      setChannels([
-        {
-          id: "p2p-text",
-          name: "General Chat",
-          description: "Decentralized P2P Chat",
-          position: 0,
-          createdAt: new Date().toISOString(),
-          channel_type: "text",
-        },
-        {
-          id: "p2p-voice",
-          name: "Voice Lounge",
-          description: "Decentralized Audio",
-          position: 1,
-          createdAt: new Date().toISOString(),
-          channel_type: "voice",
-        },
-      ]);
-      setActiveChannel("p2p-text");
+      // Fetch real P2P channels from iroh-doc
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const p2pChannels = await invoke<P2PChannel[]>("list_p2p_channels", {
+          docId: activeServer.config.p2p?.namespaceId,
+        });
+        const mapped: Channel[] = p2pChannels.map((ch) => ({
+          id: ch.id,
+          name: ch.name,
+          description: "",
+          position: ch.position,
+          createdAt: ch.created_at,
+          channel_type: ch.channel_type as "text" | "voice",
+        }));
+        setChannels(mapped);
+        const textCh = mapped.filter(
+          (c) => c.channel_type === "text" || !c.channel_type,
+        );
+        if (textCh.length > 0 && !activeChannelId) {
+          setActiveChannel(textCh[0].id);
+        }
+      } catch (err) {
+        console.error("Failed to fetch P2P channels:", err);
+        // Fallback to defaults if iroh-doc has no channels yet
+        setChannels([
+          {
+            id: "general",
+            name: "general",
+            description: "General Chat",
+            position: 0,
+            createdAt: new Date().toISOString(),
+            channel_type: "text",
+          },
+          {
+            id: "voice-lounge",
+            name: "Voice Lounge",
+            description: "Voice",
+            position: 1,
+            createdAt: new Date().toISOString(),
+            channel_type: "voice",
+          },
+        ]);
+        setActiveChannel("general");
+      }
       return;
     }
     const { host, port } = activeServer.config;
