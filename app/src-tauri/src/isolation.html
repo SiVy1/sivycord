@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sivyspeak Isolation</title>
+  </head>
+  <body>
+    <script>
+      // The isolation page acts as a bridge.
+      // It can verify messages before they reach the Rust backend.
+      window.addEventListener("message", (event) => {
+        // In a real scenario, we would perform validation here.
+        // For now, it's a pass-through as part of the architecture setup.
+        window.__TAURI_ISOLATION_HOOK__(event.data);
+      });
+    </script>
+  </body>
+</html>
