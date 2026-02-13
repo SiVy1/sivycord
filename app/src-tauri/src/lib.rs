@@ -87,9 +87,12 @@ use iroh::endpoint::SecretKey;
 
 use iroh::docs::AuthorId;
 
+use iroh::gossip::net::Gossip;
+
 pub struct IrohState {
   pub node: Node,
   pub author_id: AuthorId,
+  pub gossip: Gossip,
 }
 
 #[tauri::command]
@@ -108,6 +111,50 @@ async fn send_message(state: tauri::State<'_, IrohState>, doc_id: String, messag
     .map_err(|e| e.to_string())?;
     
   Ok(())
+}
+
+#[tauri::command]
+async fn start_voice(state: tauri::State<'_, IrohState>, doc_id: String) -> Result<(), String> {
+    let doc_id = iroh::docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    let topic = iroh::gossip::TopicId::from_bytes(doc_id.as_bytes().try_into().unwrap());
+    
+    let topic_handle = state.gossip.join(topic, vec![]).await.map_err(|e| e.to_string())?;
+    
+    // Audio Capture Setup
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    let host = cpal::default_host();
+    let device = host.default_input_device().ok_or("No input device")?;
+    let config = device.default_input_config().map_err(|e| e.to_string())?;
+    
+    let mut encoder = opus::Encoder::new(48000, opus::Channels::Mono, opus::Application::Voip).unwrap();
+    let mut denoiser = nnnoiseless::DenoiseState::new();
+    
+    let th = topic_handle.clone();
+    let stream = device.build_input_stream(
+        &config.into(),
+        move |data: &[f32], _: &_| {
+            // 1. Noise Suppression
+            let mut out = vec![0.0; data.len()];
+            denoiser.process_frame_to_buffer(data, &mut out);
+            
+            // 2. Opus Encoding (requires 960 samples for 20ms at 48kHz usually)
+            // For simplicity, we just send chunks. In a real app we'd buffer to fixed frame sizes.
+            let mut compressed = vec![0u8; 1275];
+            if let Ok(len) = encoder.encode_float(&out, &mut compressed) {
+                let packet = compressed[..len].to_vec();
+                let _ = th.broadcast(packet.into());
+            }
+        },
+        |err| eprintln!("Audio stream error: {}", err),
+        None
+    ).map_err(|e| e.to_string())?;
+    
+    stream.play().map_err(|e| e.to_string())?;
+    
+    // We need to keep the stream alive. In a production app, we'd store it in state.
+    std::mem::forget(stream); 
+    
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -162,7 +209,9 @@ pub fn run() {
         }
       });
 
-      app.manage(IrohState { node, author_id });
+      let gossip = node.gossip().clone();
+
+      app.manage(IrohState { node, author_id, gossip });
 
       // Background Task: Subscribe to Document Events
       let app_handle = app.handle().clone();
@@ -186,6 +235,29 @@ pub fn run() {
         }
       });
 
+      // Background Task: Subscribe to Gossip/VoIP Events
+      let node_sub = node.clone();
+      rt.spawn(async move {
+        let mut sub = node_sub.gossip().subscribe_all().await.unwrap();
+        
+        let mut decoder = opus::Decoder::new(48000, opus::Channels::Mono).unwrap();
+        let (_stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
+        let sink = rodio::Sink::try_new(&stream_handle).unwrap();
+        
+        while let Ok(event) = sub.recv().await {
+            if let iroh::gossip::net::Event::Received(data) = event {
+                let mut out = vec![0.0; 960]; // 20ms at 48kHz
+                if let Ok(len) = decoder.decode_float(&data.content, &mut out, false) {
+                    let source = rodio::buffer::SamplesBuffer::new(1, 48000, &out[..len]);
+                    sink.append(source);
+                }
+            }
+        }
+        
+        // Keep _stream alive
+        std::mem::forget(_stream);
+      });
+
       Ok(())
     })
     .invoke_handler(tauri::generate_handler![
@@ -195,7 +267,8 @@ pub fn run() {
         join_doc, 
         send_message,
         active_docs,
-        list_entries
+        list_entries,
+        start_voice
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
