@@ -98,10 +98,10 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
         inviteCode: inviteCode || "",
       });
       setStep("auth");
-    } catch (err: any) {
-      if (err.name === "AbortError") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
         setError("Connection timed out — is the server running?");
-      } else if (err.message?.includes("fetch")) {
+      } else if (err instanceof Error && err.message?.includes("fetch")) {
         setError("Cannot reach server — check host and port");
       } else {
         setError(err instanceof Error ? err.message : "Connection failed");

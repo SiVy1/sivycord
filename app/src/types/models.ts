@@ -84,3 +84,46 @@ export interface Role {
 export interface RoleWithMembers extends Role {
   member_count: number;
 }
+
+// ─── iroh-entry event payload (emitted by Tauri backend) ───
+export interface ChatEntry {
+  key: string;
+  author: string;
+  content: string;
+}
+
+// ─── Server Stats (from /api/stats) ───
+export interface ServerStats {
+  total_users: number;
+  total_messages: number;
+  total_channels: number;
+  total_roles: number;
+}
+
+// ─── Invite info (from /api/invites) ───
+export interface InviteInfo {
+  code: string;
+  uses: number;
+  max_uses: number | null;
+  created_at: string;
+}
+
+// ─── Audit log entry (from /api/audit-logs) ───
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  target_name: string | null;
+  details: string | null;
+  created_at: string;
+}
+
+// ─── Message data from server API ───
+export interface ApiMessage {
+  id?: string;
+  channel_id?: string;
+  user_id?: string;
+  user_name?: string;
+  avatar_url?: string | null;
+  content?: string;
+  created_at?: string;
+}

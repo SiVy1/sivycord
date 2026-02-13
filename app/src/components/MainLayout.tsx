@@ -3,7 +3,7 @@ import { ServerSidebar } from "./ServerSidebar.tsx";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { ChatArea } from "./ChatArea.tsx";
 import { useStore } from "../store";
-import { getApiUrl } from "../types";
+import { type ChatEntry, getApiUrl } from "../types";
 
 export function MainLayout() {
   const activeServerId = useStore((s) => s.activeServerId);
@@ -26,7 +26,7 @@ export function MainLayout() {
 
     const setupListener = async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      unlisten = await listen<any>("iroh-entry", (event) => {
+      unlisten = await listen<ChatEntry>("iroh-entry", (event) => {
         const payload = event.payload;
         // Map Iroh entry to Message type
         addMessage({

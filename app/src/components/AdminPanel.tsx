@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useStore } from "../store";
-import type { RoleWithMembers, Role, AuthUser } from "../types";
+import type { RoleWithMembers, Role, AuthUser, ServerEntry, ServerStats, InviteInfo, AuditLogEntry } from "../types";
 import {
   PERMISSIONS,
   PERMISSION_DEFS,
@@ -193,7 +193,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
 }
 
 // ─── Roles Tab ───
-function RolesTab({ server }: { server: any }) {
+function RolesTab({ server }: { server: ServerEntry }) {
   const [roles, setRoles] = useState<RoleWithMembers[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -306,7 +306,7 @@ function RolesTab({ server }: { server: any }) {
 }
 
 // ─── Users Tab ───
-function UsersTab({ server }: { server: any }) {
+function UsersTab({ server }: { server: ServerEntry }) {
   const [users, setUsers] = useState<AuthUser[]>([]);
   const [roles, setRoles] = useState<RoleWithMembers[]>([]);
   const [userRoles, setUserRoles] = useState<Map<string, Role[]>>(new Map());
@@ -477,13 +477,13 @@ function UsersTab({ server }: { server: any }) {
 }
 
 // ─── Server Tab ───
-function ServerTab({ server }: { server: any }) {
+function ServerTab({ server }: { server: ServerEntry }) {
   const [name, setName] = useState(server.config.serverName || "");
   const [description, setDescription] = useState("");
   const [joinSoundUrl, setJoinSoundUrl] = useState<string | null>(null);
   const [leaveSoundUrl, setLeaveSoundUrl] = useState<string | null>(null);
   const [soundChance, setSoundChance] = useState<number>(100);
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<ServerStats | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<"join" | "leave" | null>(null);
   const updateServerConfig = useStore((s) => s.updateServerConfig);
@@ -806,8 +806,8 @@ function ServerTab({ server }: { server: any }) {
 }
 
 // ─── Invites Tab ───
-function InvitesTab({ server }: { server: any }) {
-  const [invites, setInvites] = useState<any[]>([]);
+function InvitesTab({ server }: { server: ServerEntry }) {
+  const [invites, setInvites] = useState<InviteInfo[]>([]);
 
   const fetchInvites = async () => {
     try {
@@ -893,8 +893,8 @@ function InvitesTab({ server }: { server: any }) {
 }
 
 // ─── Audit Logs Tab ───
-function AuditLogsTab({ server }: { server: any }) {
-  const [logs, setLogs] = useState<any[]>([]);
+function AuditLogsTab({ server }: { server: ServerEntry }) {
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
 
   useEffect(() => {
     fetch(`http://${server.config.host}:${server.config.port}/api/audit-logs`)
@@ -1007,7 +1007,7 @@ function CreateRoleModal({
   onClose,
   onCreated,
 }: {
-  server: any;
+  server: ServerEntry;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -1046,8 +1046,8 @@ function CreateRoleModal({
       if (!res.ok) throw new Error("Failed to create role");
 
       onCreated();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
@@ -1143,7 +1143,7 @@ function EditRoleModal({
   onClose,
   onUpdated,
 }: {
-  server: any;
+  server: ServerEntry;
   role: Role;
   onClose: () => void;
   onUpdated: () => void;
@@ -1178,8 +1178,8 @@ function EditRoleModal({
       if (!res.ok) throw new Error("Failed to update role");
 
       onUpdated();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
@@ -1205,8 +1205,8 @@ function EditRoleModal({
       if (!res.ok) throw new Error("Failed to delete role");
 
       onUpdated();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };
@@ -1287,7 +1287,7 @@ function ManageUserRolesModal({
   onClose,
   onUpdated,
 }: {
-  server: any;
+  server: ServerEntry;
   userId: string;
   user: AuthUser;
   availableRoles: RoleWithMembers[];
@@ -1337,8 +1337,8 @@ function ManageUserRolesModal({
       }
 
       onUpdated();
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     }
     setLoading(false);
   };

@@ -5,6 +5,9 @@ import { ScreenShareView } from "./ScreenShareView";
 import {
   type WsClientMessage,
   type WsServerMessage,
+  type ChatEntry,
+  type ApiMessage,
+  type ServerEntry,
   getApiUrl,
   getWsUrl,
 } from "../types";
@@ -63,7 +66,7 @@ export function ChatArea() {
           const { invoke } = await import("@tauri-apps/api/core");
           const namespaceId = activeServer.config.p2p?.namespaceId;
           if (!namespaceId) return;
-          const entries = await invoke<any[]>("list_p2p_channel_messages", {
+          const entries = await invoke<ChatEntry[]>("list_p2p_channel_messages", {
             docId: namespaceId,
             channelId: activeChannelId,
           });
@@ -109,7 +112,7 @@ export function ChatArea() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data: any[]) => {
+      .then((data: ApiMessage[]) => {
         if (!Array.isArray(data)) {
           setMessages([]);
           return;
@@ -727,7 +730,7 @@ export function ChatArea() {
 // ─── Message content renderer ───
 // Renders links as clickable, images as inline previews
 
-function MessageContent({ content, server }: { content: string; server: any }) {
+function MessageContent({ content, server }: { content: string; server: ServerEntry }) {
   const { host, port } = server.config || {};
   const baseUrl = host && port ? getApiUrl(host, port) : "";
 

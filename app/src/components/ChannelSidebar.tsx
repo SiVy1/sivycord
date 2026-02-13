@@ -7,28 +7,28 @@ import { AdminPanel } from "./AdminPanel";
 import { type Channel, type P2PChannel, getApiUrl } from "../types";
 
 export function ChannelSidebar() {
-  const activeServerId = useStore((s: any) => s.activeServerId);
-  const servers = useStore((s: any) => s.servers);
-  const channels = useStore((s: any) => s.channels);
-  const activeChannelId = useStore((s: any) => s.activeChannelId);
-  const setChannels = useStore((s: any) => s.setChannels);
-  const setActiveChannel = useStore((s: any) => s.setActiveChannel);
-  const voiceChannelId = useStore((s: any) => s.voiceChannelId);
-  const voiceMembers = useStore((s: any) => s.voiceMembers);
-  const currentUser = useStore((s: any) => s.currentUser);
-  const talkingUsers = useStore((s: any) => s.talkingUsers);
-  const displayName = useStore((s: any) => s.displayName);
+  const activeServerId = useStore((s) => s.activeServerId);
+  const servers = useStore((s) => s.servers);
+  const channels = useStore((s) => s.channels);
+  const activeChannelId = useStore((s) => s.activeChannelId);
+  const setChannels = useStore((s) => s.setChannels);
+  const setActiveChannel = useStore((s) => s.setActiveChannel);
+  const voiceChannelId = useStore((s) => s.voiceChannelId);
+  const voiceMembers = useStore((s) => s.voiceMembers);
+  const currentUser = useStore((s) => s.currentUser);
+  const talkingUsers = useStore((s) => s.talkingUsers);
+  const displayName = useStore((s) => s.displayName);
   const { joinVoice, leaveVoice } = useVoice();
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
 
-  const activeServer = servers.find((s: any) => s.id === activeServerId);
+  const activeServer = servers.find((s) => s.id === activeServerId);
 
   const textChannels = channels.filter(
-    (c: any) => c.channel_type === "text" || !c.channel_type,
+    (c) => c.channel_type === "text" || !c.channel_type,
   );
-  const voiceChannels = channels.filter((c: any) => c.channel_type === "voice");
+  const voiceChannels = channels.filter((c) => c.channel_type === "voice");
 
   const fetchChannels = async () => {
     if (!activeServer) return;
@@ -87,7 +87,7 @@ export function ChannelSidebar() {
       .then((data: Channel[]) => {
         setChannels(data);
         const textCh = data.filter(
-          (c: any) => c.channel_type === "text" || !c.channel_type,
+          (c) => c.channel_type === "text" || !c.channel_type,
         );
         if (textCh.length > 0 && !activeChannelId) {
           setActiveChannel(textCh[0].id);
@@ -179,7 +179,7 @@ export function ChannelSidebar() {
             {voiceChannels.map((channel: Channel) => {
               const isConnected = voiceChannelId === channel.id;
               const voiceMembersInThisChannel = voiceMembers.filter(
-                (m: any) => m.channel_id === channel.id,
+                (m) => m.channel_id === channel.id,
               );
               return (
                 <div key={channel.id}>
@@ -228,7 +228,7 @@ export function ChannelSidebar() {
 
                   {voiceMembersInThisChannel.length > 0 && (
                     <div className="ml-10 mt-1 mb-2 space-y-1">
-                      {voiceMembersInThisChannel.map((m: any) => {
+                      {voiceMembersInThisChannel.map((m) => {
                         const isTalking = talkingUsers.has(m.user_id);
                         return (
                           <div
