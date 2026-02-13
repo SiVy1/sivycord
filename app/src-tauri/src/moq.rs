@@ -1,18 +1,4 @@
-/// MoQ (Media over QUIC) — voice transport using iroh's QUIC connections.
-///
-/// Instead of broadcasting audio over gossip (which is fan-out and not
-/// optimized for real-time media), MoQ establishes direct QUIC streams
-/// between peers in a voice channel for lower latency Opus audio delivery.
-///
-/// Architecture:
-///   - Each peer joining voice opens a bidirectional QUIC stream to every other peer.
-///   - Mic capture → nnnoiseless denoise → Opus encode → QUIC send (per stream).
-///   - QUIC recv → Opus decode → mix into ring buffer → cpal output.
-///   - Voice channel membership is signaled via gossip (join/leave notifications).
-///
-/// Key structure in iroh-doc:
-///   voice/{channel_id}/peers/{node_id} → JSON { node_id, joined_at }
-///   (Presence markers; peers clean up on leave.)
+﻿/// MoQ (Media over QUIC) voice transport using iroh's QUIC connections.
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -26,92 +12,96 @@ pub struct VoicePeerInfo {
     pub joined_at: String,
 }
 
-/// Signal that this node wants to join a voice channel.
-/// Writes a presence marker into the doc so other peers can discover us.
 #[tauri::command]
 pub async fn moq_join_voice(
     state: tauri::State<'_, IrohState>,
     doc_id: String,
     channel_id: String,
 ) -> Result<(), String> {
-    let doc = open_doc(&state, &doc_id).await?;
-    let node_id = state.node.node_id().to_string();
+    let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    state.on_rt(move |node, author_id| async move {
+        let client = node.client();
+        let doc = client.docs().open(ns).await.map_err(|e| e.to_string())?
+            .ok_or_else(|| "Document not found".to_string())?;
+        let node_id = node.node_id().to_string();
 
-    let info = VoicePeerInfo {
-        node_id: node_id.clone(),
-        channel_id: channel_id.clone(),
-        joined_at: iso_now(),
-    };
+        let info = VoicePeerInfo {
+            node_id: node_id.clone(),
+            channel_id: channel_id.clone(),
+            joined_at: iso_now(),
+        };
 
-    let key = format!("voice/{}/peers/{}", channel_id, node_id);
-    let json = serde_json::to_string(&info).map_err(|e| e.to_string())?;
+        let key = format!("voice/{}/peers/{}", channel_id, node_id);
+        let json = serde_json::to_string(&info).map_err(|e| e.to_string())?;
 
-    doc.set_bytes(
-        state.author_id,
-        key.as_bytes().to_vec(),
-        json.as_bytes().to_vec(),
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+        doc.set_bytes(
+            author_id,
+            key.as_bytes().to_vec(),
+            json.as_bytes().to_vec(),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
-    Ok(())
+        Ok(())
+    }).await
 }
 
-/// Signal that this node is leaving a voice channel.
 #[tauri::command]
 pub async fn moq_leave_voice(
     state: tauri::State<'_, IrohState>,
     doc_id: String,
     channel_id: String,
 ) -> Result<(), String> {
-    let doc = open_doc(&state, &doc_id).await?;
-    let node_id = state.node.node_id().to_string();
+    let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    state.on_rt(move |node, author_id| async move {
+        let client = node.client();
+        let doc = client.docs().open(ns).await.map_err(|e| e.to_string())?
+            .ok_or_else(|| "Document not found".to_string())?;
+        let node_id = node.node_id().to_string();
 
-    let key = format!("voice/{}/peers/{}", channel_id, node_id);
-    doc.del(state.author_id, key.as_bytes().to_vec())
-        .await
-        .map_err(|e| e.to_string())?;
+        let key = format!("voice/{}/peers/{}", channel_id, node_id);
+        doc.del(author_id, key.as_bytes().to_vec())
+            .await
+            .map_err(|e| e.to_string())?;
 
-    Ok(())
+        Ok(())
+    }).await
 }
 
-/// List all peers currently in a voice channel.
 #[tauri::command]
 pub async fn moq_list_voice_peers(
     state: tauri::State<'_, IrohState>,
     doc_id: String,
     channel_id: String,
 ) -> Result<Vec<VoicePeerInfo>, String> {
-    let doc = open_doc(&state, &doc_id).await?;
-    let client = state.node.client();
+    let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    state.on_rt(move |node, _author_id| async move {
+        let client = node.client();
+        let doc = client.docs().open(ns).await.map_err(|e| e.to_string())?
+            .ok_or_else(|| "Document not found".to_string())?;
 
-    use futures_util::StreamExt;
-    let prefix = format!("voice/{}/peers/", channel_id);
-    let mut entries = doc
-        .get_many(iroh_docs::store::Query::key_prefix(prefix.as_bytes()))
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let mut peers = Vec::new();
-    while let Some(Ok(entry)) = entries.next().await {
-        let content = entry
-            .content_bytes(client)
+        use futures_util::StreamExt;
+        let prefix = format!("voice/{}/peers/", channel_id);
+        let mut entries = doc
+            .get_many(iroh_docs::store::Query::key_prefix(prefix.as_bytes()))
             .await
             .map_err(|e| e.to_string())?;
-        if let Ok(info) = serde_json::from_slice::<VoicePeerInfo>(&content) {
-            peers.push(info);
-        }
-    }
 
-    Ok(peers)
+        let mut peers = Vec::new();
+        while let Some(Ok(entry)) = entries.next().await {
+            let content = entry
+                .content_bytes(client)
+                .await
+                .map_err(|e| e.to_string())?;
+            if let Ok(info) = serde_json::from_slice::<VoicePeerInfo>(&content) {
+                peers.push(info);
+            }
+        }
+
+        Ok(peers)
+    }).await
 }
 
-/// Start MoQ voice session — uses gossip for audio transport (QUIC-backed)
-/// with per-channel topics for isolation between voice channels.
-///
-/// This is an evolution of the original start_voice: it uses a channel-specific
-/// gossip topic derived from doc_id + channel_id, so multiple voice channels
-/// can operate simultaneously.
 #[tauri::command]
 pub async fn moq_start_voice(
     state: tauri::State<'_, IrohState>,
@@ -138,10 +128,8 @@ pub async fn moq_start_voice(
         let h = hasher.finish();
         let mut bytes = [0u8; 32];
         bytes[..8].copy_from_slice(&h.to_le_bytes());
-        // Mix in more bytes for uniqueness
         bytes[8..16].copy_from_slice(&h.to_be_bytes());
         bytes[16..24].copy_from_slice(&doc_ns.as_bytes()[..8]);
-        // Fill remaining with channel_id hash
         let mut hasher2 = DefaultHasher::new();
         channel_id.hash(&mut hasher2);
         let h2 = hasher2.finish();
@@ -151,25 +139,28 @@ pub async fn moq_start_voice(
 
     let topic = iroh_gossip::proto::TopicId::from_bytes(topic_bytes);
 
-    // Subscribe to gossip topic for this voice channel
-    let client = state.node.client();
-    let (gossip_sender, gossip_receiver) = client
-        .gossip()
-        .subscribe(topic, Vec::<iroh_base::key::PublicKey>::new())
-        .await
-        .map_err(|e| e.to_string())?;
+    // Subscribe to gossip on the iroh runtime to avoid cross-runtime deadlock
+    let rt = state._runtime.clone();
+    let node = state.node.clone();
+    let (gossip_sender, gossip_receiver) = rt.spawn(async move {
+        let client = node.client();
+        client
+            .gossip()
+            .subscribe(topic, Vec::<iroh_base::key::PublicKey>::new())
+            .await
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| e.to_string())?;
 
-    // Channel to bridge sync audio capture callback → async gossip broadcast
     let (audio_tx, mut audio_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
-    // Cancellation signal
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
     {
         let mut guard = state.voice_cancel.lock().await;
         *guard = Some(cancel_tx);
     }
 
-    // Background task: forward captured audio packets to gossip (send side)
     use futures_util::SinkExt;
     let send_task = tokio::spawn(async move {
         let mut sink = gossip_sender;
@@ -181,7 +172,6 @@ pub async fn moq_start_voice(
         }
     });
 
-    // Ring buffer for decoded audio
     let ring_size: usize = 48000;
     let ring = Arc::new(std::sync::Mutex::new(
         std::collections::VecDeque::<f32>::with_capacity(ring_size),
@@ -189,7 +179,6 @@ pub async fn moq_start_voice(
     let ring_for_output = ring.clone();
     let ring_for_decoder = ring.clone();
 
-    // Spawn a dedicated OS thread for the cpal output stream
     let (output_stop_tx, output_stop_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -236,7 +225,6 @@ pub async fn moq_start_voice(
         drop(output_stream);
     });
 
-    // Async task: decode incoming gossip audio and push to ring buffer
     use futures_util::StreamExt;
     let recv_task = tokio::spawn(async move {
         use iroh_gossip::net::{Event, GossipEvent};
@@ -271,7 +259,6 @@ pub async fn moq_start_voice(
         }
     });
 
-    // Audio Capture (microphone) on a dedicated OS thread
     let (input_stop_tx, input_stop_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -337,7 +324,6 @@ pub async fn moq_start_voice(
         drop(input_stream);
     });
 
-    // Cleanup task
     tokio::spawn(async move {
         let _ = cancel_rx.await;
         let _ = output_stop_tx.send(());
@@ -347,23 +333,6 @@ pub async fn moq_start_voice(
     });
 
     Ok(())
-}
-
-// ─── Helpers ───
-
-async fn open_doc(
-    state: &tauri::State<'_, IrohState>,
-    doc_id: &str,
-) -> Result<iroh::client::docs::Doc, String> {
-    let ns = iroh_docs::NamespaceId::from_str(doc_id).map_err(|e| e.to_string())?;
-    state
-        .node
-        .client()
-        .docs()
-        .open(ns)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Document {} not found", doc_id))
 }
 
 fn iso_now() -> String {

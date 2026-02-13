@@ -208,33 +208,34 @@ export const useStore = create<AppState>()(
       },
       p2pVoiceActive: false,
       createP2PServer: async (name: string) => {
-        try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          const ticket = await invoke<string>("create_doc");
-          const namespaceId = ticket.split(":")[0]; // Simplification for now
-          const server: ServerEntry = {
-            id: namespaceId,
-            type: "p2p",
-            displayName: name,
-            initial: name[0].toUpperCase(),
-            config: {
-              p2p: {
-                ticket,
-                namespaceId,
-                isOwner: true,
-              },
+        const { invoke } = await import("@tauri-apps/api/core");
+        const result = await invoke<{ namespace_id: string; ticket: string }>("create_doc");
+        const namespaceId = result.namespace_id;
+        const ticket = result.ticket;
+        const server: ServerEntry = {
+          id: namespaceId,
+          type: "p2p",
+          displayName: name,
+          initial: (name[0] || "?").toUpperCase(),
+          config: {
+            p2p: {
+              ticket,
+              namespaceId,
+              isOwner: true,
             },
-          };
-          // Publish DID identity to the new server
-          const dn = useStore.getState().displayName || name;
+          },
+        };
+        // Publish DID identity to the new server
+        const dn = useStore.getState().displayName || name;
+        try {
           await invoke("set_identity", { docId: namespaceId, displayName: dn, bio: null });
-          set((s) => ({
-            servers: [...s.servers, server],
-            activeServerId: namespaceId,
-          }));
-        } catch (err) {
-          console.error("Failed to create P2P server", err);
+        } catch (e) {
+          console.warn("set_identity failed (non-critical)", e);
         }
+        set((s) => ({
+          servers: [...s.servers, server],
+          activeServerId: namespaceId,
+        }));
       },
       joinP2PServer: async (name: string, ticket: string) => {
         try {

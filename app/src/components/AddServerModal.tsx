@@ -354,9 +354,12 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
             }
             placeholder="e.g. Secret Lair"
             autoFocus
-            className="w-full px-4 py-3 bg-bg-input border border-border/50 rounded-xl text-text-primary outline-none focus:border-accent transition-all mb-8"
+            className="w-full px-4 py-3 bg-bg-input border border-border/50 rounded-xl text-text-primary outline-none focus:border-accent transition-all"
           />
-          <div className="flex gap-3">
+          {error && (
+            <p className="text-red-400 text-sm mt-2 mb-4">{error}</p>
+          )}
+          <div className="flex gap-3 mt-8">
             <button
               onClick={() => setMode("choice")}
               className="flex-1 py-3 text-sm font-bold text-text-muted"
@@ -365,12 +368,26 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
             </button>
             <button
               onClick={async () => {
-                await useStore.getState().createP2PServer(name);
-                onClose();
+                if (!name.trim()) {
+                  setError("Server name cannot be empty");
+                  return;
+                }
+                setLoading(true);
+                setError("");
+                try {
+                  await useStore.getState().createP2PServer(name.trim());
+                  onClose();
+                } catch (err) {
+                  console.error("Failed to create P2P server", err);
+                  setError(err instanceof Error ? err.message : "Failed to create server. Make sure the app is running in Tauri.");
+                } finally {
+                  setLoading(false);
+                }
               }}
-              className="flex-[2] py-3 bg-accent text-white rounded-xl font-bold"
+              disabled={loading}
+              className="flex-[2] py-3 bg-accent text-white rounded-xl font-bold disabled:opacity-50"
             >
-              Create Server
+              {loading ? "Creating..." : "Create Server"}
             </button>
           </div>
         </div>

@@ -120,6 +120,7 @@ pub fn run() {
         dns::resolve_srv,
         docs::get_node_id,
         docs::create_doc,
+        docs::get_doc_ticket,
         docs::join_doc,
         docs::get_doc_owner,
         docs::send_message,

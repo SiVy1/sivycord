@@ -26,3 +26,22 @@ pub struct ChatEntry {
     pub key: String,
     pub content: String,
 }
+
+impl IrohState {
+    /// Spawn an async closure on the iroh runtime and await its result.
+    /// This avoids deadlocks when Tauri commands run on a different async runtime
+    /// than the one the iroh node was created on.
+    pub async fn on_rt<F, Fut, T>(&self, f: F) -> Result<T, String>
+    where
+        F: FnOnce(iroh::node::Node<iroh_blobs::store::fs::Store>, iroh_docs::AuthorId) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, String>> + Send + 'static,
+        T: Send + 'static,
+    {
+        let node = self.node.clone();
+        let author_id = self.author_id;
+        self._runtime
+            .spawn(f(node, author_id))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?
+    }
+}

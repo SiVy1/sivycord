@@ -1,4 +1,4 @@
-use std::str::FromStr;
+﻿use std::str::FromStr;
 use std::sync::Arc;
 use crate::state::IrohState;
 
@@ -18,15 +18,21 @@ pub async fn start_voice(
     let doc_id = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
     let topic = iroh_gossip::proto::TopicId::from_bytes(*doc_id.as_bytes());
 
-    // Subscribe to gossip topic for voice – returns (sink, stream)
-    let client = state.node.client();
-    let (gossip_sender, gossip_receiver) = client
-        .gossip()
-        .subscribe(topic, Vec::<iroh_base::key::PublicKey>::new())
-        .await
-        .map_err(|e| e.to_string())?;
+    // Subscribe to gossip on the iroh runtime to avoid cross-runtime deadlock
+    let rt = state._runtime.clone();
+    let node = state.node.clone();
+    let (gossip_sender, gossip_receiver) = rt.spawn(async move {
+        let client = node.client();
+        client
+            .gossip()
+            .subscribe(topic, Vec::<iroh_base::key::PublicKey>::new())
+            .await
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| e.to_string())?;
 
-    // Channel to bridge sync audio capture callback → async gossip broadcast
+    // Channel to bridge sync audio capture callback -> async gossip broadcast
     let (audio_tx, mut audio_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
 
     // Cancellation signal
@@ -48,8 +54,8 @@ pub async fn start_voice(
         }
     });
 
-    // Ring buffer for decoded audio: producer (network) → consumer (audio callback)
-    let ring_size: usize = 48000; // 1s buffer at 48kHz mono
+    // Ring buffer for decoded audio: producer (network) -> consumer (audio callback)
+    let ring_size: usize = 48000;
     let ring = Arc::new(std::sync::Mutex::new(
         std::collections::VecDeque::<f32>::with_capacity(ring_size),
     ));
@@ -99,7 +105,6 @@ pub async fn start_voice(
             return;
         }
 
-        // Block this thread until stop signal
         let _ = output_stop_rx.recv();
         drop(output_stream);
     });
@@ -118,7 +123,7 @@ pub async fn start_voice(
         };
 
         let mut stream = gossip_receiver;
-        let mut decode_buf = vec![0f32; 960]; // 20ms at 48kHz
+        let mut decode_buf = vec![0f32; 960];
         while let Some(Ok(event)) = stream.next().await {
             match event {
                 Event::Gossip(GossipEvent::Received(msg)) => {
@@ -139,8 +144,7 @@ pub async fn start_voice(
         }
     });
 
-    // Audio Capture Setup (send side — microphone)
-    // cpal::Stream is !Send, so we run capture on a dedicated OS thread too
+    // Audio Capture Setup (send side)
     let (input_stop_tx, input_stop_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -173,16 +177,13 @@ pub async fn start_voice(
         let input_stream = match device.build_input_stream(
             &input_config,
             move |data: &[f32], _: &_| {
-                // Accumulate samples into 960-sample frames (20ms at 48kHz)
                 for &sample in data {
                     frame_buf.push(sample);
                     if frame_buf.len() == 960 {
-                        // Denoise
                         let mut denoised = vec![0.0f32; 960];
                         denoiser.process_frame(&mut denoised, &frame_buf);
                         frame_buf.clear();
 
-                        // Encode with Opus
                         let mut compressed = vec![0u8; 1275];
                         if let Ok(len) = encoder.encode_float(&denoised, &mut compressed) {
                             let _ = audio_tx.send(compressed[..len].to_vec());
@@ -205,7 +206,6 @@ pub async fn start_voice(
             return;
         }
 
-        // Block this thread until stop signal
         let _ = input_stop_rx.recv();
         drop(input_stream);
     });
@@ -213,7 +213,6 @@ pub async fn start_voice(
     // Spawn a task that waits for cancellation and cleans up
     tokio::spawn(async move {
         let _ = cancel_rx.await;
-        // Stop audio threads and abort async tasks
         let _ = output_stop_tx.send(());
         let _ = input_stop_tx.send(());
         send_task.abort();
