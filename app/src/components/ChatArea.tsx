@@ -774,10 +774,12 @@ function MessageContent({ content, server }: { content: string; server: any }) {
             );
           }
 
+          const isSafeUrl = /^https?:\/\//i.test(fullUrl) || fullUrl.startsWith('/');
+
           return (
             <a
               key={i}
-              href={fullUrl}
+              href={isSafeUrl ? fullUrl : '#'}
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent hover:underline font-medium"
@@ -804,8 +806,10 @@ function MessageContent({ content, server }: { content: string; server: any }) {
               title={part}
               className="inline-block w-6 h-6 object-contain align-bottom mx-0.5"
               onError={(e) => {
-                // If not found, revert to text
-                (e.target as HTMLElement).outerHTML = part;
+                // If not found, revert to text safely
+                const el = e.target as HTMLElement;
+                const text = document.createTextNode(part);
+                el.parentNode?.replaceChild(text, el);
               }}
             />
           );

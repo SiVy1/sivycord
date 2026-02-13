@@ -1,7 +1,9 @@
-use axum::{extract::State, Json, response::IntoResponse, http::StatusCode};
-use crate::models::{ServerInfo, UpdateServerRequest};
+use axum::{extract::State, Json, response::IntoResponse, http::{HeaderMap, StatusCode}};
+use crate::models::{Permissions, ServerInfo, UpdateServerRequest};
 use crate::state::AppState;
 use crate::routes::audit_logs::create_audit_log;
+use crate::routes::auth::extract_claims;
+use crate::routes::roles::user_has_permission;
 
 pub async fn get_server_info(State(state): State<AppState>) -> Json<ServerInfo> {
     let settings: (String, String, Option<String>, Option<String>, i64) = sqlx::query_as("SELECT server_name, server_description, join_sound_url, leave_sound_url, sound_chance FROM server_settings WHERE id = 1")
@@ -29,8 +31,14 @@ pub async fn get_server_info(State(state): State<AppState>) -> Json<ServerInfo> 
 
 pub async fn update_server_info(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<UpdateServerRequest>,
-) -> impl IntoResponse {
+) -> Result<StatusCode, StatusCode> {
+    let claims = extract_claims(&state.jwt_secret, &headers).map_err(|e| e.0)?;
+    if !user_has_permission(&state, &claims.sub, Permissions::MANAGE_SERVER).await? {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     if let Some(name) = payload.name.clone() {
         sqlx::query("UPDATE server_settings SET server_name = ?, updated_at = datetime('now') WHERE id = 1")
             .bind(&name)
@@ -40,8 +48,8 @@ pub async fn update_server_info(
         
         create_audit_log(
             &state.db,
-            "Admin",
-            "Administrator",
+            &claims.sub,
+            &claims.username,
             "UPDATE_SERVER_NAME",
             None,
             Some(&name),
@@ -58,8 +66,8 @@ pub async fn update_server_info(
 
         create_audit_log(
             &state.db,
-            "Admin",
-            "Administrator",
+            &claims.sub,
+            &claims.username,
             "UPDATE_SERVER_DESCRIPTION",
             None,
             None,
@@ -76,8 +84,8 @@ pub async fn update_server_info(
         
         create_audit_log(
             &state.db,
-            "Admin",
-            "Administrator",
+            &claims.sub,
+            &claims.username,
             "UPDATE_JOIN_SOUND",
             None,
             Some("join_sound_url"),
@@ -94,8 +102,8 @@ pub async fn update_server_info(
         
         create_audit_log(
             &state.db,
-            "Admin",
-            "Administrator",
+            &claims.sub,
+            &claims.username,
             "UPDATE_LEAVE_SOUND",
             None,
             Some("leave_sound_url"),
@@ -112,8 +120,8 @@ pub async fn update_server_info(
         
         create_audit_log(
             &state.db,
-            "Admin",
-            "Administrator",
+            &claims.sub,
+            &claims.username,
             "UPDATE_SOUND_CHANCE",
             None,
             Some("sound_chance"),
@@ -121,5 +129,5 @@ pub async fn update_server_info(
         ).await;
     }
 
-    StatusCode::OK
+    Ok(StatusCode::OK)
 }

@@ -6,6 +6,9 @@ mod token;
 mod ws;
 
 use axum::{
+    extract::Request,
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Router,
 };
@@ -168,6 +171,9 @@ async fn main() {
         args.external_port.unwrap_or(port),
     );
 
+    let allowed_host = state.external_host.clone();
+    let allowed_port = port;
+
     let app = Router::new()
         // Auth
         .route("/api/register", post(routes::auth::register))
@@ -215,6 +221,9 @@ async fn main() {
         .route("/ws", get(ws::ws_handler))
         // Middleware
         .layer(CorsLayer::permissive())
+        .layer(middleware::from_fn(move |req, next| {
+            validate_host(req, next, allowed_host.clone(), allowed_port)
+        }))
         // State
         .with_state(state);
 
@@ -233,4 +242,26 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+/// Reject requests with an unexpected Host header (DNS rebinding protection).
+async fn validate_host(
+    req: Request,
+    next: Next,
+    allowed_host: String,
+    allowed_port: u16,
+) -> Response {
+    if let Some(host_val) = req.headers().get("host").and_then(|v| v.to_str().ok()) {
+        let host_str = host_val.split(':').next().unwrap_or(host_val);
+        let is_local = host_str == "localhost" || host_str == "127.0.0.1" || host_str == "[::1]";
+        let is_allowed = host_str == allowed_host;
+        if !is_local && !is_allowed {
+            return axum::http::Response::builder()
+                .status(421)
+                .body(axum::body::Body::from("Misdirected Request"))
+                .unwrap()
+                .into_response();
+        }
+    }
+    next.run(req).await
 }
