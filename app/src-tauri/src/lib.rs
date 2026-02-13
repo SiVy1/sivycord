@@ -166,8 +166,25 @@ pub fn run() {
 
       // Background Task: Subscribe to Document Events
       let app_handle = app.handle().clone();
-      let node_for_sub = state_node.clone(); // I need to clone the node or use state
-      // Actually I'll use the node from the rt block
+      let node_sub = node.clone();
+      rt.spawn(async move {
+        let mut sub = node_sub.docs().subscribe_all().await.unwrap();
+        while let Ok(event) = sub.recv().await {
+            match event {
+                iroh::docs::engine::LiveEvent::InsertRemote { entry, .. } | 
+                iroh::docs::engine::LiveEvent::InsertLocal { entry } => {
+                    let content = entry.content_bytes(&node_sub).await.unwrap_or_default();
+                    let payload = ChatEntry {
+                        author: entry.author().to_string(),
+                        key: String::from_utf8_lossy(entry.key()).to_string(),
+                        content: String::from_utf8_lossy(&content).to_string(),
+                    };
+                    let _ = app_handle.emit("iroh-entry", payload);
+                }
+                _ => {}
+            }
+        }
+      });
 
       Ok(())
     })
