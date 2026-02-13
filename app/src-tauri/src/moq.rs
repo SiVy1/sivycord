@@ -18,6 +18,7 @@ pub async fn moq_join_voice(
     doc_id: String,
     channel_id: String,
 ) -> Result<(), String> {
+    log::info!("[Voice] moq_join_voice: doc_id={}, channel_id={}", doc_id, channel_id);
     let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
     state.on_rt(move |node, author_id| async move {
         let client = node.client();
@@ -52,6 +53,7 @@ pub async fn moq_leave_voice(
     doc_id: String,
     channel_id: String,
 ) -> Result<(), String> {
+    log::info!("[Voice] moq_leave_voice: doc_id={}, channel_id={}", doc_id, channel_id);
     let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
     state.on_rt(move |node, author_id| async move {
         let client = node.client();
@@ -108,6 +110,7 @@ pub async fn moq_start_voice(
     doc_id: String,
     channel_id: String,
 ) -> Result<(), String> {
+    log::info!("[Voice] moq_start_voice: doc_id={}, channel_id={}", doc_id, channel_id);
     // Cancel any existing voice session first
     {
         let mut guard = state.voice_cancel.lock().await;
@@ -187,39 +190,64 @@ pub async fn moq_start_voice(
         let out_device = match audio_host.default_output_device() {
             Some(d) => d,
             None => {
-                eprintln!("No output audio device available");
+                log::error!("[Voice] No output audio device available");
                 return;
             }
         };
+        let default_cfg = match out_device.default_output_config() {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("[Voice] Failed to get default output config: {}", e);
+                return;
+            }
+        };
+        let dev_rate = default_cfg.sample_rate().0;
+        let dev_ch = default_cfg.channels() as usize;
+        log::info!("[Voice] MoQ output device: {}Hz, {} channels", dev_rate, dev_ch);
+
         let out_config = cpal::StreamConfig {
-            channels: 1,
-            sample_rate: cpal::SampleRate(48000),
+            channels: default_cfg.channels(),
+            sample_rate: default_cfg.sample_rate(),
             buffer_size: cpal::BufferSize::Default,
         };
 
         let ring_reader = ring_for_output;
+        // Resample from 48kHz mono ring buffer to device native format
+        let step = 48000.0_f64 / dev_rate as f64;
+        let mut last_sample = 0.0f32;
+        let mut frac = 0.0f64;
+
         let output_stream = match out_device.build_output_stream(
             &out_config,
             move |data: &mut [f32], _: &_| {
                 let mut rb = ring_reader.lock().unwrap();
-                for sample in data.iter_mut() {
-                    *sample = rb.pop_front().unwrap_or(0.0);
+                let frames = data.len() / dev_ch;
+                for i in 0..frames {
+                    frac += step;
+                    while frac >= 1.0 {
+                        last_sample = rb.pop_front().unwrap_or(last_sample);
+                        frac -= 1.0;
+                    }
+                    for ch in 0..dev_ch {
+                        data[i * dev_ch + ch] = last_sample;
+                    }
                 }
             },
-            |err| eprintln!("Audio output error: {}", err),
+            |err| log::error!("[Voice] MoQ audio output error: {}", err),
             None,
         ) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Failed to build output stream: {}", e);
+                log::error!("[Voice] Failed to build MoQ output stream: {}", e);
                 return;
             }
         };
 
         if let Err(e) = output_stream.play() {
-            eprintln!("Failed to play output stream: {}", e);
+            log::error!("[Voice] Failed to play MoQ output stream: {}", e);
             return;
         }
+        log::info!("[Voice] MoQ output stream started");
 
         let _ = output_stop_rx.recv();
         drop(output_stream);
@@ -232,7 +260,7 @@ pub async fn moq_start_voice(
         let mut decoder = match opus::Decoder::new(48000, opus::Channels::Mono) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("Failed to create Opus decoder: {}", e);
+                log::error!("[Voice] Failed to create Opus decoder: {}", e);
                 return;
             }
         };
@@ -251,7 +279,7 @@ pub async fn moq_start_voice(
                                 }
                             }
                         }
-                        Err(e) => eprintln!("Opus decode error: {}", e),
+                        Err(e) => log::error!("[Voice] Opus decode error: {}", e),
                     }
                 }
                 _ => {}
@@ -267,13 +295,24 @@ pub async fn moq_start_voice(
         let device = match host.default_input_device() {
             Some(d) => d,
             None => {
-                eprintln!("No input audio device available");
+                log::error!("[Voice] No input audio device available");
                 return;
             }
         };
+        let default_cfg = match device.default_input_config() {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("[Voice] Failed to get default input config: {}", e);
+                return;
+            }
+        };
+        let dev_rate = default_cfg.sample_rate().0;
+        let dev_ch = default_cfg.channels() as usize;
+        log::info!("[Voice] MoQ input device: {}Hz, {} channels", dev_rate, dev_ch);
+
         let input_config = cpal::StreamConfig {
-            channels: 1,
-            sample_rate: cpal::SampleRate(48000),
+            channels: default_cfg.channels(),
+            sample_rate: default_cfg.sample_rate(),
             buffer_size: cpal::BufferSize::Default,
         };
 
@@ -281,44 +320,62 @@ pub async fn moq_start_voice(
             match opus::Encoder::new(48000, opus::Channels::Mono, opus::Application::Voip) {
                 Ok(e) => e,
                 Err(e) => {
-                    eprintln!("Failed to create Opus encoder: {}", e);
+                    log::error!("[Voice] Failed to create Opus encoder: {}", e);
                     return;
                 }
             };
         let mut denoiser = nnnoiseless::DenoiseState::new();
         let mut frame_buf = Vec::<f32>::with_capacity(960);
+        // Resample from device rate to 48kHz mono for Opus
+        let step = 48000.0_f64 / dev_rate as f64;
+        let mut resample_frac = 0.0f64;
 
         let input_stream = match device.build_input_stream(
             &input_config,
             move |data: &[f32], _: &_| {
-                for &sample in data {
-                    frame_buf.push(sample);
-                    if frame_buf.len() == 960 {
-                        let mut denoised = vec![0.0f32; 960];
-                        denoiser.process_frame(&mut denoised, &frame_buf);
-                        frame_buf.clear();
+                let frames = data.len() / dev_ch;
+                for i in 0..frames {
+                    // Mix to mono
+                    let mut mono = 0.0f32;
+                    for ch in 0..dev_ch {
+                        mono += data[i * dev_ch + ch];
+                    }
+                    mono /= dev_ch as f32;
 
-                        let mut compressed = vec![0u8; 1275];
-                        if let Ok(len) = encoder.encode_float(&denoised, &mut compressed) {
-                            let _ = audio_tx.send(compressed[..len].to_vec());
+                    // Resample to 48kHz
+                    resample_frac += step;
+                    while resample_frac >= 1.0 {
+                        frame_buf.push(mono);
+                        resample_frac -= 1.0;
+
+                        if frame_buf.len() == 960 {
+                            let mut denoised = vec![0.0f32; 960];
+                            denoiser.process_frame(&mut denoised, &frame_buf);
+                            frame_buf.clear();
+
+                            let mut compressed = vec![0u8; 1275];
+                            if let Ok(len) = encoder.encode_float(&denoised, &mut compressed) {
+                                let _ = audio_tx.send(compressed[..len].to_vec());
+                            }
                         }
                     }
                 }
             },
-            |err| eprintln!("Audio input error: {}", err),
+            |err| log::error!("[Voice] MoQ audio input error: {}", err),
             None,
         ) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Failed to build input stream: {}", e);
+                log::error!("[Voice] Failed to build MoQ input stream: {}", e);
                 return;
             }
         };
 
         if let Err(e) = input_stream.play() {
-            eprintln!("Failed to play input stream: {}", e);
+            log::error!("[Voice] Failed to play MoQ input stream: {}", e);
             return;
         }
+        log::info!("[Voice] MoQ input stream started");
 
         let _ = input_stop_rx.recv();
         drop(input_stream);
