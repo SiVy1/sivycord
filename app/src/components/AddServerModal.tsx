@@ -162,26 +162,28 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
     setError("");
 
     try {
-      // Try SRV resolution
-      const srv: { host: string; port: number } | null = await invoke(
-        "resolve_srv",
-        { domain: h },
-      );
-      if (srv) {
-        h = srv.host;
-        p = srv.port;
+      // Try SRV resolution with a timeout so it doesn't hang forever
+      try {
+        const srvPromise = invoke("resolve_srv", { domain: h });
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+        const srv = await Promise.race([srvPromise, timeoutPromise]) as { host: string; port: number } | null;
+        if (srv) {
+          h = srv.host;
+          p = srv.port;
+        }
+      } catch (err) {
+        console.warn("SRV resolution failed or not available:", err);
       }
-    } catch (err) {
-      console.warn("SRV resolution failed or not available:", err);
-    }
 
-    if (isNaN(p) || p < 1 || p > 65535) {
-      setError("Port must be between 1 and 65535");
+      if (isNaN(p) || p < 1 || p > 65535) {
+        setError("Port must be between 1 and 65535");
+        return;
+      }
+
+      await joinWithConfig(h, p);
+    } finally {
       setLoading(false);
-      return;
     }
-
-    await joinWithConfig(h, p);
   };
 
   // Auth step
@@ -419,6 +421,9 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
             placeholder="Paste ticket here..."
             className="w-full px-4 py-3 bg-bg-input border border-border/50 rounded-xl text-text-primary outline-none focus:border-accent transition-all h-32 mb-8 font-mono text-xs"
           />
+          {error && (
+            <p className="text-danger text-xs mb-4 text-center">{error}</p>
+          )}
           <div className="flex gap-3">
             <button
               onClick={() => setMode("choice")}
@@ -428,12 +433,25 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
             </button>
             <button
               onClick={async () => {
-                await useStore.getState().joinP2PServer("GXP Server", ticket);
-                onClose();
+                if (!ticket.trim()) {
+                  setError("Ticket cannot be empty");
+                  return;
+                }
+                setLoading(true);
+                setError("");
+                try {
+                  await useStore.getState().joinP2PServer("P2P Server", ticket.trim());
+                  onClose();
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Failed to join P2P server");
+                } finally {
+                  setLoading(false);
+                }
               }}
-              className="flex-[2] py-3 bg-accent text-white rounded-xl font-bold"
+              disabled={loading}
+              className="flex-[2] py-3 bg-accent text-white rounded-xl font-bold disabled:opacity-50"
             >
-              Join
+              {loading ? "Joining..." : "Join"}
             </button>
           </div>
         </div>

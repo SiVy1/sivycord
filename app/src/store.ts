@@ -238,30 +238,30 @@ export const useStore = create<AppState>()(
         }));
       },
       joinP2PServer: async (name: string, ticket: string) => {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const namespaceId = await invoke<string>("join_doc", {
+          ticketStr: ticket,
+        });
+        const newServer: ServerEntry = {
+          id: namespaceId,
+          type: "p2p",
+          displayName: name,
+          initial: name[0].toUpperCase(),
+          config: {
+            p2p: { ticket, namespaceId, isOwner: false },
+          },
+        };
+        // Publish DID identity to the joined server (non-critical)
+        const dn = useStore.getState().displayName || name;
         try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          const namespaceId = await invoke<string>("join_doc", {
-            ticketStr: ticket,
-          });
-          const newServer: ServerEntry = {
-            id: namespaceId,
-            type: "p2p",
-            displayName: name,
-            initial: name[0].toUpperCase(),
-            config: {
-              p2p: { ticket, namespaceId, isOwner: false },
-            },
-          };
-          // Publish DID identity to the joined server
-          const dn = useStore.getState().displayName || name;
           await invoke("set_identity", { docId: namespaceId, displayName: dn, bio: null });
-          set((s) => ({
-            servers: [...s.servers, newServer],
-            activeServerId: namespaceId,
-          }));
-        } catch (err) {
-          console.error("Failed to join P2P server", err);
+        } catch (e) {
+          console.warn("set_identity failed (non-critical)", e);
         }
+        set((s) => ({
+          servers: [...s.servers, newServer],
+          activeServerId: namespaceId,
+        }));
       },
       startP2PVoice: async (docId: string) => {
         try {
