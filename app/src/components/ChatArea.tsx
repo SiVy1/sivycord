@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useStore } from "../store";
 import { EmojiPicker } from "./EmojiPicker";
 import { ScreenShareView } from "./ScreenShareView";
@@ -16,6 +17,7 @@ const MAX_MESSAGE_LENGTH = 2000;
 const WS_RECONNECT_DELAY = 2000;
 const WS_MAX_RETRIES = 10;
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
+const MESSAGES_PER_PAGE = 50;
 
 export function ChatArea() {
   const activeServerId = useStore((s) => s.activeServerId);
@@ -25,6 +27,11 @@ export function ChatArea() {
   const messages = useStore((s) => s.messages);
   const setMessages = useStore((s) => s.setMessages);
   const addMessage = useStore((s) => s.addMessage);
+  const prependMessages = useStore((s) => s.prependMessages);
+  const hasMoreMessages = useStore((s) => s.hasMoreMessages);
+  const isLoadingMore = useStore((s) => s.isLoadingMore);
+  const setHasMoreMessages = useStore((s) => s.setHasMoreMessages);
+  const setIsLoadingMore = useStore((s) => s.setIsLoadingMore);
   const displayName = useStore((s) => s.displayName);
   const screenShares = useStore((s) => s.screenShares);
   const removeScreenShare = useStore((s) => s.removeScreenShare);
@@ -38,7 +45,8 @@ export function ChatArea() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const prevChannelRef = useRef<string | null>(null);
   const retriesRef = useRef(0);
@@ -50,9 +58,18 @@ export function ChatArea() {
   const activeChannel = channels.find((c) => c.id === activeChannelId);
   const isAuthenticated = !!activeServer?.config.authToken;
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages only if already at bottom
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (atBottom && messages.length > 0) {
+      // Small delay so Virtuoso finishes rendering
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: messages.length - 1,
+          align: "end",
+          behavior: "smooth",
+        });
+      });
+    }
   }, [messages.length]);
 
   // Fetch message history
@@ -104,8 +121,9 @@ export function ChatArea() {
     if (!host || !port) return;
     const baseUrl = getApiUrl(host, port);
 
+    setHasMoreMessages(true);
     const controller = new AbortController();
-    fetch(`${baseUrl}/api/channels/${activeChannelId}/messages?limit=50`, {
+    fetch(`${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}`, {
       signal: controller.signal,
     })
       .then((r) => {
@@ -115,6 +133,7 @@ export function ChatArea() {
       .then((data: ApiMessage[]) => {
         if (!Array.isArray(data)) {
           setMessages([]);
+          setHasMoreMessages(false);
           return;
         }
         const mapped = data.map((m) => ({
@@ -127,6 +146,10 @@ export function ChatArea() {
         }));
         mapped.forEach((m) => seenMsgIds.current.add(m.id));
         setMessages(mapped);
+        // If we got fewer messages than requested, there are no more
+        if (mapped.length < MESSAGES_PER_PAGE) {
+          setHasMoreMessages(false);
+        }
       })
       .catch((err) => {
         if (err.name !== "AbortError") {
@@ -262,6 +285,53 @@ export function ChatArea() {
     );
     prevChannelRef.current = activeChannelId;
   }, [activeChannelId]);
+
+  // Load older messages (infinite scroll upward)
+  const loadOlderMessages = useCallback(async () => {
+    if (!activeServer || !activeChannelId || isLoadingMore || !hasMoreMessages) return;
+    if (activeServer.type === "p2p") return; // P2P loads all at once
+
+    const { host, port } = activeServer.config;
+    if (!host || !port) return;
+
+    const oldest = messages[0];
+    if (!oldest) return;
+
+    setIsLoadingMore(true);
+    try {
+      const baseUrl = getApiUrl(host, port);
+      const res = await fetch(
+        `${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}&before=${encodeURIComponent(oldest.createdAt)}`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data: ApiMessage[] = await res.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        setHasMoreMessages(false);
+        return;
+      }
+
+      const mapped = data.map((m) => ({
+        id: m.id || crypto.randomUUID(),
+        channelId: m.channel_id || "",
+        userId: m.user_id || "",
+        userName: m.user_name || "Unknown",
+        content: m.content || "",
+        createdAt: m.created_at || "",
+      }));
+
+      mapped.forEach((m) => seenMsgIds.current.add(m.id));
+      prependMessages(mapped);
+
+      if (mapped.length < MESSAGES_PER_PAGE) {
+        setHasMoreMessages(false);
+      }
+    } catch (err) {
+      console.error("Failed to load older messages:", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [activeServer, activeChannelId, messages, isLoadingMore, hasMoreMessages, prependMessages, setHasMoreMessages, setIsLoadingMore]);
 
   // File upload
   const uploadFile = useCallback(
@@ -527,65 +597,97 @@ export function ChatArea() {
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
-        {messages.length === 0 && (
-          <div className="text-center py-12">
+      {/* Messages — virtualized with infinite scroll */}
+      <div className="flex-1 overflow-hidden">
+        {messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
             <p className="text-text-muted text-sm">
               No messages yet. Say hi! 👋
             </p>
           </div>
-        )}
-        {messages.map((msg, i) => {
-          const showHeader = i === 0 || messages[i - 1].userId !== msg.userId;
-
-          // Try to find member for avatar (fallback to msg.avatarUrl)
-          const avatarUrl = msg.avatarUrl;
-
-          return (
-            <div key={msg.id} className={`group ${showHeader ? "mt-3" : ""}`}>
-              {showHeader && (
-                <div className="flex items-center gap-3 mb-1">
-                  {/* Avatar */}
-                  {avatarUrl && activeServer ? (
-                    <>
-                      {activeServer.type === "legacy" &&
-                        activeServer.config.host &&
-                        activeServer.config.port && (
-                          <img
-                            src={`${getApiUrl(activeServer.config.host, activeServer.config.port)}${avatarUrl}`}
-                            alt={msg.userName}
-                            className="w-10 h-10 rounded-full object-cover shadow-sm bg-bg-surface"
-                          />
-                        )}
-                      {activeServer.type === "p2p" && (
-                        <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-white font-bold">
-                          {msg.userName[0].toUpperCase()}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="w-10 h-10 rounded-xl bg-bg-surface flex items-center justify-center text-sm font-bold text-accent shadow-sm flex-shrink-0 border border-border/50">
-                      {(msg.userName || "?")[0]?.toUpperCase()}
-                    </div>
-                  )}
-                  <div className="flex items-baseline gap-2.5">
-                    <span className="text-sm font-bold text-text-primary tracking-tight">
-                      {msg.userName || "Unknown"}
-                    </span>
-                    <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
-                      {formatTime(msg.createdAt)}
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            data={messages}
+            initialTopMostItemIndex={messages.length - 1}
+            followOutput={(isAtBottom) => (isAtBottom ? "smooth" : false)}
+            atBottomStateChange={setAtBottom}
+            startReached={loadOlderMessages}
+            increaseViewportBy={{ top: 400, bottom: 100 }}
+            components={{
+              Header: () =>
+                hasMoreMessages && activeServer?.type !== "p2p" ? (
+                  <div className="flex justify-center py-3">
+                    {isLoadingMore ? (
+                      <div className="flex items-center gap-2 text-text-muted text-xs">
+                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Loading older messages...
+                      </div>
+                    ) : (
+                      <span className="text-text-muted text-[10px] uppercase tracking-wider font-bold">
+                        Scroll up for more
+                      </span>
+                    )}
+                  </div>
+                ) : messages.length > 0 ? (
+                  <div className="flex justify-center py-4">
+                    <span className="text-text-muted text-[10px] uppercase tracking-wider font-bold">
+                      Beginning of conversation
                     </span>
                   </div>
+                ) : null,
+            }}
+            itemContent={(index, msg) => {
+              const showHeader = index === 0 || messages[index - 1].userId !== msg.userId;
+              const avatarUrl = msg.avatarUrl;
+
+              return (
+                <div className={`px-4 ${showHeader ? "mt-3" : ""}`}>
+                  {showHeader && (
+                    <div className="flex items-center gap-3 mb-1">
+                      {avatarUrl && activeServer ? (
+                        <>
+                          {activeServer.type === "legacy" &&
+                            activeServer.config.host &&
+                            activeServer.config.port && (
+                              <img
+                                src={`${getApiUrl(activeServer.config.host, activeServer.config.port)}${avatarUrl}`}
+                                alt={msg.userName}
+                                className="w-10 h-10 rounded-full object-cover shadow-sm bg-bg-surface"
+                              />
+                            )}
+                          {activeServer.type === "p2p" && (
+                            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-white font-bold">
+                              {msg.userName[0].toUpperCase()}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="w-10 h-10 rounded-xl bg-bg-surface flex items-center justify-center text-sm font-bold text-accent shadow-sm flex-shrink-0 border border-border/50">
+                          {(msg.userName || "?")[0]?.toUpperCase()}
+                        </div>
+                      )}
+                      <div className="flex items-baseline gap-2.5">
+                        <span className="text-sm font-bold text-text-primary tracking-tight">
+                          {msg.userName || "Unknown"}
+                        </span>
+                        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
+                          {formatTime(msg.createdAt)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
+                    <MessageContent content={msg.content} server={activeServer!} />
+                  </div>
                 </div>
-              )}
-              <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
-                <MessageContent content={msg.content} server={activeServer!} />
-              </div>
-            </div>
-          );
-        })}
-        <div ref={messagesEndRef} />
+              );
+            }}
+          />
+        )}
       </div>
 
       {/* Input */}

@@ -28,6 +28,30 @@ pub struct Message {
     pub created_at: String,
 }
 
+// ─── Bots & Webhooks ───
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Bot {
+    pub id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub owner_id: String,
+    pub token: String,
+    pub permissions: i64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Webhook {
+    pub id: String,
+    pub channel_id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub token: String,
+    pub created_by: String,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct InviteCode {
     pub code: String,

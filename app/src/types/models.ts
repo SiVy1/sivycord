@@ -129,3 +129,25 @@ export interface ApiMessage {
   content?: string;
   created_at?: string;
 }
+
+// ─── Bots ───
+export interface BotInfo {
+  id: string;
+  name: string;
+  avatar_url: string | null;
+  owner_id: string;
+  token: string;
+  permissions: number;
+  created_at: string;
+}
+
+// ─── Webhooks ───
+export interface WebhookInfo {
+  id: string;
+  channel_id: string;
+  name: string;
+  avatar_url: string | null;
+  token: string;
+  created_by: string;
+  created_at: string;
+}

@@ -280,35 +280,6 @@ Sprawdź czy isolation mode jest wyłączony w `tauri.conf.json`. CSP powinno by
 - [x] File uploads & emoji
 - [x] Admin panel
 
-### 🚧 v0.2 - Game Integration (Q2 2026)
-- [ ] **Game State Integration (GSI)** — Counter-Strike 2, Dota 2
-  - [ ] Automatyczny "Clutch Mode" (VAD ducking)
-  - [ ] Context-aware noise suppression
-  - [ ] Post-match analytics & voice activity correlation
-- [ ] Screen share preview (thumbnails w czacie)
-- [ ] Enhanced overlay system (transparent windows)
-
-### 🔮 v0.3 - Spatial Audio (Q3 2026)
-- [ ] **HRTF 3D Audio** — Steam Audio integration
-- [ ] Positional voice (wirtualny "stół konferencyjny")
-- [ ] Occlusion & reverb simulation
-- [ ] Per-user spatial positioning
-
-### 🌍 v0.4 - Mobile & Cross-Platform (Q4 2026)
-- [ ] Android app (Tauri v2 mobile)
-- [ ] iOS app (ograniczone P2P w tle)
-- [ ] UnifiedPush notifications
-- [ ] Background service optimization
-
-### 🤖 v1.0 - AI & Advanced Features (2027)
-- [ ] Real-time translation (Whisper STT + LLM)
-- [ ] Voice transcription & searchable history
-- [ ] Smart highlights & clipping (GSI triggers)
-- [ ] Plugin system (WASM modules)
-- [ ] Telestrator (collaborative drawing overlay)
-
----
-
 ## 🤝 Contributing
 
 Contributions are welcome! Whether it's bug reports, feature requests, or pull requests:

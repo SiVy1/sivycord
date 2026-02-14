@@ -217,6 +217,19 @@ async fn main() {
         .route("/api/roles/assign", post(routes::roles::assign_role))
         .route("/api/roles/{user_id}/{role_id}", delete(routes::roles::remove_role))
         .route("/api/users/{user_id}/roles", get(routes::roles::get_user_roles))
+        // Bots
+        .route("/api/bots", get(routes::bots::list_bots))
+        .route("/api/bots", post(routes::bots::create_bot))
+        .route("/api/bots/{bot_id}", get(routes::bots::get_bot))
+        .route("/api/bots/{bot_id}", put(routes::bots::update_bot))
+        .route("/api/bots/{bot_id}", delete(routes::bots::delete_bot))
+        .route("/api/bots/{bot_id}/regenerate-token", post(routes::bots::regenerate_bot_token))
+        .route("/api/bots/message", post(routes::bots::bot_send_message))
+        // Webhooks
+        .route("/api/webhooks", get(routes::webhooks::list_webhooks))
+        .route("/api/webhooks", post(routes::webhooks::create_webhook))
+        .route("/api/webhooks/{webhook_id}", delete(routes::webhooks::delete_webhook))
+        .route("/api/webhooks/{webhook_id}/{token}", post(routes::webhooks::execute_webhook))
         // WebSocket
         .route("/ws", get(ws::ws_handler))
         // Middleware

@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod bots;
 pub mod channels;
 pub mod emoji;
 pub mod invite;
@@ -9,3 +10,4 @@ pub mod uploads;
 pub mod audit_logs;
 pub mod members;
 pub mod stats;
+pub mod webhooks;

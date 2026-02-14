@@ -38,8 +38,13 @@ interface AppState {
 
   // Messages (per active channel)
   messages: Message[];
+  hasMoreMessages: boolean;
+  isLoadingMore: boolean;
   setMessages: (messages: Message[]) => void;
   addMessage: (message: Message) => void;
+  prependMessages: (messages: Message[]) => void;
+  setHasMoreMessages: (v: boolean) => void;
+  setIsLoadingMore: (v: boolean) => void;
   // Voice
   voiceChannelId: string | null;
   voiceMembers: VoicePeer[];
@@ -127,13 +132,23 @@ export const useStore = create<AppState>()(
       channels: [],
       activeChannelId: null,
       setChannels: (channels) => set({ channels }),
-      setActiveChannel: (id) => set({ activeChannelId: id, messages: [] }),
+      setActiveChannel: (id) => set({ activeChannelId: id, messages: [], hasMoreMessages: true, isLoadingMore: false }),
 
       // Messages
       messages: [],
+      hasMoreMessages: true,
+      isLoadingMore: false,
       setMessages: (messages) => set({ messages }),
       addMessage: (message) =>
         set((s) => ({ messages: [...s.messages, message] })),
+      prependMessages: (older) =>
+        set((s) => {
+          const existingIds = new Set(s.messages.map((m) => m.id));
+          const unique = older.filter((m) => !existingIds.has(m.id));
+          return { messages: [...unique, ...s.messages] };
+        }),
+      setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
+      setIsLoadingMore: (v) => set({ isLoadingMore: v }),
 
       // Voice
       voiceChannelId: null,

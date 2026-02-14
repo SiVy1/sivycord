@@ -6,6 +6,7 @@ import { RolesTab } from "./admin/RolesTab";
 import { UsersTab } from "./admin/UsersTab";
 import { ServerTab } from "./admin/ServerTab";
 import { InvitesTab, AuditLogsTab } from "./admin/InvitesTab";
+import { BotsTab } from "./admin/BotsTab";
 
 interface AdminPanelProps {
   onClose: () => void;
@@ -13,7 +14,7 @@ interface AdminPanelProps {
 
 export function AdminPanel({ onClose }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<
-    "roles" | "users" | "server" | "audit" | "invites"
+    "roles" | "users" | "server" | "audit" | "invites" | "bots"
   >("roles");
   const servers = useStore((s) => s.servers);
   const activeServerId = useStore((s) => s.activeServerId);
@@ -173,6 +174,18 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           >
             📜 Audit Logs
           </button>
+          {activeServer.type === "legacy" && (
+            <button
+              onClick={() => setActiveTab("bots")}
+              className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+                activeTab === "bots"
+                  ? "bg-bg-surface text-accent border-b-2 border-accent"
+                  : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
+              }`}
+            >
+              🤖 Bots
+            </button>
+          )}
         </div>
 
         {/* Content */}
@@ -182,6 +195,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           {activeTab === "server" && <ServerTab server={activeServer} />}
           {activeTab === "invites" && <InvitesTab server={activeServer} />}
           {activeTab === "audit" && <AuditLogsTab server={activeServer} />}
+          {activeTab === "bots" && <BotsTab server={activeServer} />}
         </div>
       </div>
     </div>
