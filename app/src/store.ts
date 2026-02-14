@@ -350,6 +350,8 @@ export const useStore = create<AppState>()(
       partialize: (state) => ({
         displayName: state.displayName,
         servers: state.servers,
+        activeServerId: state.activeServerId,
+        activeChannelId: state.activeChannelId,
         voiceSettings: state.voiceSettings,
         soundSettings: state.soundSettings,
       }),

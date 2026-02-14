@@ -160,12 +160,15 @@ export function ChannelSidebar() {
       }
       return;
     }
-    const { host, port } = activeServer.config;
+    const { host, port, authToken } = activeServer.config;
     if (!host || !port) return;
     const baseUrl = getApiUrl(host, port);
     const guildId = activeServer.config.guildId || "default";
     fetch(`${baseUrl}/api/channels`, {
-      headers: { "X-Server-Id": guildId },
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        "X-Server-Id": guildId,
+      },
     })
       .then((r) => r.json())
       .then((data: Channel[]) => {

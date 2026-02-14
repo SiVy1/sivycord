@@ -145,9 +145,13 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
 
     setHasMoreMessages(true);
     const controller = new AbortController();
+    const authToken = activeServer.config.authToken;
     fetch(`${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}`, {
       signal: controller.signal,
-      headers: { "X-Server-Id": activeServer.config.guildId || "default" },
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        "X-Server-Id": activeServer.config.guildId || "default",
+      },
     })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -220,7 +224,10 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
         } else {
           // Check if key is already on the server; upload if not
           const res = await fetch(`${baseUrl}/api/keys/${userId}`, {
-            headers: { "X-Server-Id": guildId },
+            headers: {
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+              "X-Server-Id": guildId,
+            },
           });
           if (res.status === 404) {
             const pubKey = await getLocalPublicKey(userId);
@@ -448,7 +455,12 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
       const guildId = activeServer.config.guildId || "default";
       const res = await fetch(
         `${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}&before=${encodeURIComponent(oldest.createdAt)}`,
-        { headers: { "X-Server-Id": guildId } },
+        {
+          headers: {
+            ...(activeServer.config.authToken ? { Authorization: `Bearer ${activeServer.config.authToken}` } : {}),
+            "X-Server-Id": guildId,
+          },
+        },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: ApiMessage[] = await res.json();
