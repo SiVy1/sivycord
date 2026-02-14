@@ -10,14 +10,17 @@ pub async fn get_node_id(state: tauri::State<'_, IrohState>) -> Result<String, S
     Ok(id)
 }
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 pub struct CreateDocResult {
     pub namespace_id: String,
     pub ticket: String,
 }
 
 #[tauri::command]
-pub async fn create_doc(state: tauri::State<'_, IrohState>) -> Result<CreateDocResult, String> {
+pub async fn create_doc(
+    state: tauri::State<'_, IrohState>,
+    app: tauri::AppHandle,
+) -> Result<CreateDocResult, String> {
     log::info!("[P2P] create_doc: starting");
     let result = state.on_rt(|node, author_id| async move {
         let client = node.client();
@@ -27,6 +30,7 @@ pub async fn create_doc(state: tauri::State<'_, IrohState>) -> Result<CreateDocR
             e.to_string()
         })?;
         let namespace_id = doc.id().to_string();
+        let doc_id = doc.id();
         log::info!("[P2P] create_doc: doc created with namespace_id={}", namespace_id);
 
         let owner_id = node.node_id().to_string();
@@ -60,16 +64,28 @@ pub async fn create_doc(state: tauri::State<'_, IrohState>) -> Result<CreateDocR
         let ticket_str = ticket.to_string();
         log::info!("[P2P] create_doc: ticket generated (len={})", ticket_str.len());
 
-        Ok(CreateDocResult {
+        Ok((CreateDocResult {
             namespace_id,
             ticket: ticket_str,
-        })
+        }, doc_id))
     }).await;
+    
     match &result {
-        Ok(r) => log::info!("[P2P] create_doc: success ns={}", r.namespace_id),
-        Err(e) => log::error!("[P2P] create_doc: failed: {}", e),
+        Ok((r, doc_id)) => {
+            log::info!("[P2P] create_doc: success ns={}, subscribing...", r.namespace_id);
+            // Subscribe to the newly created document
+            crate::subscriptions::subscribe_to_doc(
+                state.node.client().clone(),
+                app,
+                *doc_id,
+            ).await;
+            Ok(r.clone())
+        },
+        Err(e) => {
+            log::error!("[P2P] create_doc: failed: {}", e);
+            Err(e.clone())
+        }
     }
-    result
 }
 
 /// Get a shareable ticket for an existing doc.
@@ -151,6 +167,7 @@ pub async fn get_doc_owner(
 #[tauri::command]
 pub async fn join_doc(
     state: tauri::State<'_, IrohState>,
+    app: tauri::AppHandle,
     ticket_str: String,
 ) -> Result<String, String> {
     log::info!("[P2P] join_doc: parsing ticket (len={})", ticket_str.len());
@@ -171,14 +188,27 @@ pub async fn join_doc(
                 e.to_string()
             })?;
         let ns_id = doc.id().to_string();
+        let doc_id = doc.id();
         log::info!("[P2P] join_doc: import succeeded, namespace_id={}", ns_id);
-        Ok(ns_id)
+        Ok((ns_id, doc_id))
     }).await;
+    
     match &result {
-        Ok(ns) => log::info!("[P2P] join_doc: completed successfully, ns={}", ns),
-        Err(e) => log::error!("[P2P] join_doc: failed: {}", e),
+        Ok((ns, doc_id)) => {
+            log::info!("[P2P] join_doc: completed successfully, ns={}, subscribing...", ns);
+            // Subscribe to the newly joined document
+            crate::subscriptions::subscribe_to_doc(
+                state.node.client().clone(),
+                app,
+                *doc_id,
+            ).await;
+            Ok(ns.clone())
+        },
+        Err(e) => {
+            log::error!("[P2P] join_doc: failed: {}", e);
+            Err(e.clone())
+        }
     }
-    result
 }
 
 #[tauri::command]

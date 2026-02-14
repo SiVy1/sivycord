@@ -5,6 +5,7 @@ import { useVoice } from "../hooks/useVoice";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AdminPanel } from "./AdminPanel";
 import { CreateChannelModal } from "./CreateChannelModal";
+import { P2PInviteModal } from "./P2PInviteModal";
 import { type Channel, type P2PChannel, getApiUrl } from "../types";
 
 export function ChannelSidebar() {
@@ -23,6 +24,7 @@ export function ChannelSidebar() {
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
 
@@ -103,6 +105,15 @@ export function ChannelSidebar() {
 
   return (
     <div className="w-64 min-w-64 bg-bg-secondary border-r border-border flex flex-col">
+      {/* Invite Modal */}
+      {showInvite && activeServer?.type === "p2p" && activeServer.config.p2p?.ticket && (
+        <P2PInviteModal
+          ticket={activeServer.config.p2p.ticket}
+          serverName={activeServer.displayName}
+          onClose={() => setShowInvite(false)}
+        />
+      )}
+
       {/* Server header */}
       <div className="h-14 flex items-center px-4 border-b border-border/50 justify-between bg-bg-secondary/80 backdrop-blur-md sticky top-0 z-10">
         <h2 className="text-sm font-bold text-text-primary truncate tracking-tight">
@@ -112,27 +123,52 @@ export function ChannelSidebar() {
               activeServer?.config.host ||
               "Server"}
         </h2>
-        {activeServer?.type !== "p2p" && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface transition-all cursor-pointer"
-            title="Create channel"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.5}
+        <div className="flex items-center gap-1">
+          {/* Copy Invite (P2P owner only) */}
+          {activeServer?.type === "p2p" && activeServer.config.p2p?.isOwner && (
+            <button
+              onClick={() => setShowInvite(true)}
+              className="p-1.5 rounded-lg text-text-muted hover:text-accent hover:bg-bg-surface transition-all cursor-pointer"
+              title="Copy Invite"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M12 4.5v15m7.5-7.5h-15"
-              />
-            </svg>
-          </button>
-        )}
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
+                />
+              </svg>
+            </button>
+          )}
+          {/* Create Channel */}
+          {activeServer?.type !== "p2p" && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface transition-all cursor-pointer"
+              title="Create channel"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 4.5v15m7.5-7.5h-15"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
       {/* Channel list */}
       <div className="flex-1 overflow-y-auto py-4 px-2.5 space-y-4">

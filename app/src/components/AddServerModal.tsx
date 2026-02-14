@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../store";
 import { AuthScreen } from "./AuthScreen";
+import { P2PInviteModal } from "./P2PInviteModal";
 import { decodeToken, getApiUrl } from "../types";
 import { v4 as uuidv4 } from "uuid";
 import type { AuthUser } from "../types";
@@ -24,6 +25,10 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
   const [port, setPort] = useState("3000");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState<{
+    ticket: string;
+    serverName: string;
+  } | null>(null);
   const [pendingServer, setPendingServer] = useState<{
     host: string;
     port: number;
@@ -187,6 +192,19 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
   };
 
   // Auth step
+  if (showInviteModal) {
+    return (
+      <P2PInviteModal
+        ticket={showInviteModal.ticket}
+        serverName={showInviteModal.serverName}
+        onClose={() => {
+          setShowInviteModal(null);
+          onClose();
+        }}
+      />
+    );
+  }
+
   if (step === "auth" && pendingServer) {
     return (
       <AuthScreen
@@ -378,7 +396,17 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
                 setError("");
                 try {
                   await useStore.getState().createP2PServer(name.trim());
-                  onClose();
+                  // Get the ticket from the newly created server
+                  const servers = useStore.getState().servers;
+                  const newServer = servers[servers.length - 1];
+                  if (newServer?.config.p2p?.ticket) {
+                    setShowInviteModal({
+                      ticket: newServer.config.p2p.ticket,
+                      serverName: name.trim(),
+                    });
+                  } else {
+                    onClose();
+                  }
                 } catch (err) {
                   console.error("Failed to create P2P server", err);
                   setError(err instanceof Error ? err.message : "Failed to create server. Make sure the app is running in Tauri.");

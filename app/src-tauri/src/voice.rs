@@ -1,6 +1,130 @@
-﻿use std::str::FromStr;
-use std::sync::Arc;
-use crate::state::IrohState;
+﻿use std::collections::{BTreeMap, VecDeque};
+
+// ── Voice constants (shared with moq.rs) ────────────────────────────
+const OPUS_SAMPLE_RATE: u32 = 48_000;
+const OPUS_FRAME_SAMPLES: usize = 960; // 20 ms @ 48 kHz
+const DENOISE_FRAME_SIZE: usize = 480; // nnnoiseless FRAME_SIZE
+const MAX_OPUS_PACKET: usize = 1_275;
+
+// Jitter-buffer constants
+const JITTER_MIN_MS: u32 = 20;
+const JITTER_MAX_MS: u32 = 200;
+const JITTER_INITIAL_MS: u32 = 60;
+const JITTER_CAPACITY: usize = 50;
+const REORDER_WINDOW: u16 = 16;
+const HEADER_SIZE: usize = 4;
+
+// ── Packet header helpers ───────────────────────────────────────────
+fn make_header(seq: u16, has_fec: bool) -> [u8; HEADER_SIZE] {
+    let mut h = [0u8; HEADER_SIZE];
+    h[0..2].copy_from_slice(&seq.to_le_bytes());
+    h[2] = if has_fec { 1 } else { 0 };
+    h[3] = 0; // reserved
+    h
+}
+
+fn parse_header(data: &[u8]) -> Option<(u16, bool, &[u8])> {
+    if data.len() < HEADER_SIZE {
+        return None;
+    }
+    let seq = u16::from_le_bytes([data[0], data[1]]);
+    let has_fec = data[2] != 0;
+    Some((seq, has_fec, &data[HEADER_SIZE..]))
+}
+
+// ── Adaptive Jitter Buffer ──────────────────────────────────────────
+enum PullResult {
+    Frame(Vec<f32>),
+    Lost,
+    NotReady,
+}
+
+struct JitterBuffer {
+    buf: BTreeMap<u16, Vec<f32>>,
+    next_seq: Option<u16>,
+    target_depth_ms: u32,
+    recent_gaps: VecDeque<bool>,
+}
+
+impl JitterBuffer {
+    fn new() -> Self {
+        Self {
+            buf: BTreeMap::new(),
+            next_seq: None,
+            target_depth_ms: JITTER_INITIAL_MS,
+            recent_gaps: VecDeque::with_capacity(100),
+        }
+    }
+
+    fn target_frames(&self) -> usize {
+        ((self.target_depth_ms as usize) * OPUS_SAMPLE_RATE as usize)
+            / (1000 * OPUS_FRAME_SAMPLES)
+    }
+
+    fn record_arrival(&mut self, was_gap: bool) {
+        self.recent_gaps.push_back(was_gap);
+        if self.recent_gaps.len() > 100 {
+            self.recent_gaps.pop_front();
+        }
+        if self.recent_gaps.len() >= 20 {
+            let loss_rate =
+                self.recent_gaps.iter().filter(|&&g| g).count() as f32 / self.recent_gaps.len() as f32;
+            let ideal = if loss_rate < 0.01 {
+                JITTER_MIN_MS
+            } else if loss_rate < 0.05 {
+                40
+            } else if loss_rate < 0.15 {
+                80
+            } else {
+                JITTER_MAX_MS
+            };
+            // Exponential smoothing
+            self.target_depth_ms = ((self.target_depth_ms as f32) * 0.9 + ideal as f32 * 0.1) as u32;
+            self.target_depth_ms = self.target_depth_ms.clamp(JITTER_MIN_MS, JITTER_MAX_MS);
+        }
+    }
+
+    fn insert(&mut self, seq: u16, pcm: Vec<f32>) {
+        if let Some(next) = self.next_seq {
+            let diff = seq.wrapping_sub(next);
+            if diff > u16::MAX / 2 {
+                return; // late / duplicate
+            }
+        }
+        if self.buf.len() >= JITTER_CAPACITY {
+            if let Some(&oldest) = self.buf.keys().next() {
+                self.buf.remove(&oldest);
+            }
+        }
+        self.buf.insert(seq, pcm);
+    }
+
+    fn pull(&mut self) -> PullResult {
+        let target = self.target_frames().max(1);
+        if self.buf.len() < target && self.next_seq.is_none() {
+            return PullResult::NotReady;
+        }
+        let seq = match self.next_seq {
+            Some(s) => s,
+            None => {
+                if let Some(&first) = self.buf.keys().next() {
+                    self.next_seq = Some(first);
+                    first
+                } else {
+                    return PullResult::NotReady;
+                }
+            }
+        };
+        self.next_seq = Some(seq.wrapping_add(1));
+        if let Some(pcm) = self.buf.remove(&seq) {
+            self.record_arrival(false);
+            PullResult::Frame(pcm)
+        } else {
+            self.record_arrival(true);
+            PullResult::Lost
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn start_voice(
@@ -43,7 +167,7 @@ pub async fn start_voice(
         *guard = Some(cancel_tx);
     }
 
-    // Background task: forward captured audio packets to gossip (send side)
+    // ── Send task: forward captured audio packets to gossip ──────────
     use futures_util::SinkExt;
     let send_task = tokio::spawn(async move {
         let mut sink = gossip_sender;
@@ -55,15 +179,17 @@ pub async fn start_voice(
         }
     });
 
-    // Ring buffer for decoded audio: producer (network) -> consumer (audio callback)
-    let ring_size: usize = 48000;
+    // ── Shared jitter buffer + ring buffer ──────────────────────────
+    let jitter = Arc::new(std::sync::Mutex::new(JitterBuffer::new()));
+    let jitter_for_recv = jitter.clone();
+    let ring_size: usize = 48000; // ~1 second buffer
     let ring = Arc::new(std::sync::Mutex::new(
-        std::collections::VecDeque::<f32>::with_capacity(ring_size),
+        VecDeque::<f32>::with_capacity(ring_size),
     ));
     let ring_for_output = ring.clone();
-    let ring_for_decoder = ring.clone();
+    let ring_for_drainer = ring.clone();
 
-    // Spawn a dedicated OS thread for the cpal output stream (it's !Send)
+    // ── Output thread ───────────────────────────────────────────────
     let (output_stop_tx, output_stop_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -95,7 +221,7 @@ pub async fn start_voice(
 
         let ring_reader = ring_for_output;
         // Resample from 48kHz mono ring buffer to device native format
-        let step = 48000.0_f64 / dev_rate as f64;
+        let step = OPUS_SAMPLE_RATE as f64 / dev_rate as f64;
         let mut last_sample = 0.0f32;
         let mut frac = 0.0f64;
 
@@ -135,34 +261,91 @@ pub async fn start_voice(
         drop(output_stream);
     });
 
-    // Async task: decode incoming gossip audio and push to ring buffer
+    // ── Receive task: decode gossip audio, feed jitter buffer ────────
     use futures_util::StreamExt;
     let recv_task = tokio::spawn(async move {
         use iroh_gossip::net::{Event, GossipEvent};
 
-        let mut decoder = match opus::Decoder::new(48000, opus::Channels::Mono) {
+        let mut decoder = match opus::Decoder::new(OPUS_SAMPLE_RATE, opus::Channels::Mono) {
             Ok(d) => d,
             Err(e) => {
                 log::error!("[Voice] Failed to create Opus decoder: {}", e);
                 return;
             }
         };
+        let mut plc_decoder = match opus::Decoder::new(OPUS_SAMPLE_RATE, opus::Channels::Mono) {
+            Ok(d) => d,
+            Err(e) => {
+                log::error!("[Voice] Failed to create PLC decoder: {}", e);
+                return;
+            }
+        };
 
         let mut stream = gossip_receiver;
-        let mut decode_buf = vec![0f32; 960];
-        while let Some(Ok(event)) = stream.next().await {
-            match event {
-                Event::Gossip(GossipEvent::Received(msg)) => {
-                    match decoder.decode_float(&msg.content, &mut decode_buf, false) {
-                        Ok(decoded_samples) => {
-                            let mut rb = ring_for_decoder.lock().unwrap();
-                            for &s in &decode_buf[..decoded_samples] {
+        let mut decode_buf = vec![0f32; OPUS_FRAME_SAMPLES];
+        let mut plc_buf = vec![0f32; OPUS_FRAME_SAMPLES];
+        let mut stats_packets: u64 = 0;
+        let mut stats_plc: u64 = 0;
+
+        loop {
+            // Drain jitter buffer → ring buffer
+            {
+                let mut jb = jitter_for_recv.lock().unwrap();
+                loop {
+                    match jb.pull() {
+                        PullResult::Frame(pcm) => {
+                            let mut rb = ring_for_drainer.lock().unwrap();
+                            for &s in &pcm {
                                 if rb.len() < ring_size {
                                     rb.push_back(s);
                                 }
                             }
                         }
-                        Err(e) => log::error!("[Voice] Opus decode error: {}", e),
+                        PullResult::Lost => {
+                            if let Ok(n) = plc_decoder.decode_float(&[], &mut plc_buf, false) {
+                                stats_plc += 1;
+                                let mut rb = ring_for_drainer.lock().unwrap();
+                                for &s in &plc_buf[..n] {
+                                    if rb.len() < ring_size {
+                                        rb.push_back(s);
+                                    }
+                                }
+                            }
+                        }
+                        PullResult::NotReady => break,
+                    }
+                }
+            }
+
+            let event = tokio::select! {
+                ev = stream.next() => match ev {
+                    Some(Ok(e)) => e,
+                    _ => break,
+                },
+            };
+
+            match event {
+                Event::Gossip(GossipEvent::Received(msg)) => {
+                    if let Some((seq, _has_fec, opus_data)) = parse_header(&msg.content) {
+                        match decoder.decode_float(opus_data, &mut decode_buf, false) {
+                            Ok(decoded_samples) => {
+                                stats_packets += 1;
+                                let pcm = decode_buf[..decoded_samples].to_vec();
+                                let mut jb = jitter_for_recv.lock().unwrap();
+                                jb.insert(seq, pcm);
+                            }
+                            Err(e) => {
+                                log::error!("[Voice] Opus decode error (seq={}): {}", seq, e);
+                            }
+                        }
+
+                        if stats_packets % 500 == 0 && stats_packets > 0 {
+                            let jb = jitter_for_recv.lock().unwrap();
+                            log::info!(
+                                "[Voice] Stats: packets={}, plc={}, jitter_target={}ms, buf={}",
+                                stats_packets, stats_plc, jb.target_depth_ms, jb.buf.len()
+                            );
+                        }
                     }
                 }
                 _ => {}
@@ -170,7 +353,7 @@ pub async fn start_voice(
         }
     });
 
-    // Audio Capture Setup (send side)
+    // ── Input thread: capture → denoise → encode → send ─────────────
     let (input_stop_tx, input_stop_rx) = std::sync::mpsc::channel::<()>();
     std::thread::spawn(move || {
         use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -201,53 +384,60 @@ pub async fn start_voice(
         };
 
         let mut encoder =
-            match opus::Encoder::new(48000, opus::Channels::Mono, opus::Application::Voip) {
-                Ok(e) => e,
+            match opus::Encoder::new(OPUS_SAMPLE_RATE, opus::Channels::Mono, opus::Application::Voip) {
+                Ok(mut e) => {
+                    let _ = e.set_inband_fec(true);
+                    let _ = e.set_dtx(true);
+                    let _ = e.set_packet_loss_perc(5);
+                    let _ = e.set_bitrate(opus::Bitrate::Bits(64000));
+                    log::info!("[Voice] Opus encoder: FEC=on, DTX=on, loss_hint=5%, bitrate=64kbps");
+                    e
+                }
                 Err(e) => {
                     log::error!("[Voice] Failed to create Opus encoder: {}", e);
                     return;
                 }
             };
         let mut denoiser = nnnoiseless::DenoiseState::new();
-        // nnnoiseless FRAME_SIZE = 480, Opus frame = 960 (20ms at 48kHz)
-        let mut denoise_buf = Vec::<f32>::with_capacity(480);
-        let mut opus_buf = Vec::<f32>::with_capacity(960);
-        // Resample from device rate to 48kHz mono for Opus
-        let step = 48000.0_f64 / dev_rate as f64;
+        let mut denoise_buf = Vec::<f32>::with_capacity(DENOISE_FRAME_SIZE);
+        let mut opus_buf = Vec::<f32>::with_capacity(OPUS_FRAME_SAMPLES);
+        let step = OPUS_SAMPLE_RATE as f64 / dev_rate as f64;
         let mut resample_frac = 0.0f64;
+        let mut send_seq: u16 = 0;
 
         let input_stream = match device.build_input_stream(
             &input_config,
             move |data: &[f32], _: &_| {
                 let frames = data.len() / dev_ch;
                 for i in 0..frames {
-                    // Mix to mono
                     let mut mono = 0.0f32;
                     for ch in 0..dev_ch {
                         mono += data[i * dev_ch + ch];
                     }
                     mono /= dev_ch as f32;
 
-                    // Resample to 48kHz
                     resample_frac += step;
                     while resample_frac >= 1.0 {
                         denoise_buf.push(mono);
                         resample_frac -= 1.0;
 
-                        // Denoise in 480-sample chunks (nnnoiseless FRAME_SIZE)
-                        if denoise_buf.len() == 480 {
-                            let mut denoised = vec![0.0f32; 480];
+                        if denoise_buf.len() == DENOISE_FRAME_SIZE {
+                            let mut denoised = vec![0.0f32; DENOISE_FRAME_SIZE];
                             denoiser.process_frame(&mut denoised, &denoise_buf);
                             denoise_buf.clear();
                             opus_buf.extend_from_slice(&denoised);
 
-                            // Encode when we have 960 samples (20ms Opus frame)
-                            if opus_buf.len() >= 960 {
-                                let mut compressed = vec![0u8; 1275];
-                                if let Ok(len) = encoder.encode_float(&opus_buf[..960], &mut compressed) {
-                                    let _ = audio_tx.send(compressed[..len].to_vec());
+                            if opus_buf.len() >= OPUS_FRAME_SAMPLES {
+                                let mut compressed = vec![0u8; MAX_OPUS_PACKET];
+                                if let Ok(len) = encoder.encode_float(&opus_buf[..OPUS_FRAME_SAMPLES], &mut compressed) {
+                                    let header = make_header(send_seq, true);
+                                    let mut packet = Vec::with_capacity(HEADER_SIZE + len);
+                                    packet.extend_from_slice(&header);
+                                    packet.extend_from_slice(&compressed[..len]);
+                                    let _ = audio_tx.send(packet);
+                                    send_seq = send_seq.wrapping_add(1);
                                 }
-                                opus_buf.drain(..960);
+                                opus_buf.drain(..OPUS_FRAME_SAMPLES);
                             }
                         }
                     }
@@ -267,13 +457,12 @@ pub async fn start_voice(
             log::error!("[Voice] Failed to play input stream: {}", e);
             return;
         }
-        log::info!("[Voice] Input stream started");
+        log::info!("[Voice] Input stream started (FEC+DTX+PLC enabled)");
 
         let _ = input_stop_rx.recv();
         drop(input_stream);
     });
 
-    // Spawn a task that waits for cancellation and cleans up
     tokio::spawn(async move {
         let _ = cancel_rx.await;
         let _ = output_stop_tx.send(());
