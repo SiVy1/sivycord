@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, memo } from "react";
 import { getApiUrl } from "../types";
 
 interface Emoji {
@@ -17,7 +17,7 @@ interface EmojiPickerProps {
   onClose: () => void;
 }
 
-export function EmojiPicker({
+export const EmojiPicker = memo(function EmojiPicker({
   serverHost,
   serverPort,
   authToken,
@@ -175,4 +175,4 @@ export function EmojiPicker({
       </div>
     </div>
   );
-}
+});

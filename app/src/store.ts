@@ -154,6 +154,7 @@ export const useStore = create<AppState>()(
       // Voice
       voiceChannelId: null,
       voiceMembers: [],
+      screenShares: new Map(),
       isMuted: false,
       isDeafened: false,
       setMuted: (v) => set({ isMuted: v }),

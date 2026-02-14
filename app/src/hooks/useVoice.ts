@@ -1,6 +1,7 @@
 import { useCallback, useEffect } from "react";
 import { useStore } from "../store";
 import { type WsServerMessage, getWsUrl } from "../types";
+import { setTalkingDirect } from "./talkingStore";
 import {
   ws, localStream, displayStream, localUserId, currentChannelId,
   peerConnections, makingOffer, audioElements, screenTrackSenders,
@@ -23,7 +24,6 @@ export function useVoice() {
   const displayName = useStore((s) => s.displayName);
   const currentUser = useStore((s) => s.currentUser);
   const voiceSettings = useStore((s) => s.voiceSettings);
-  const setTalking = useStore((s) => s.setTalking);
   const isScreenSharing = displayStream !== null;
 
   const activeServer = servers.find((s) => s.id === activeServerId);
@@ -311,7 +311,7 @@ export function useVoice() {
               }
             }
           } else if (data.type === "voice_talking") {
-            setTalking(data.user_id, data.talking);
+            setTalkingDirect(data.user_id, data.talking);
           } else if (data.type === "voice_status_update") {
             const currentMembers = useStore.getState().voiceMembers;
             const updated = currentMembers.map((m) =>
@@ -344,7 +344,6 @@ export function useVoice() {
       setVoiceMembers,
       addVoiceMember,
       removeVoiceMember,
-      setTalking,
     ],
   );
 

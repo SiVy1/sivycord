@@ -1,10 +1,56 @@
+import { memo, useState } from "react";
 import type { ServerEntry } from "../types";
 import { getApiUrl } from "../types";
+
+// ─── Helpers ───
+function isSameOriginUrl(url: string, baseUrl: string): boolean {
+  if (url.startsWith("/")) return true;
+  if (!baseUrl) return false;
+  try {
+    const urlOrigin = new URL(url).origin;
+    const baseOrigin = new URL(baseUrl).origin;
+    return urlOrigin === baseOrigin;
+  } catch {
+    return false;
+  }
+}
+
+function isSafeScheme(url: string): boolean {
+  return /^https?:\/\//i.test(url) || url.startsWith("/");
+}
+
+function ExternalImagePlaceholder({ url, alt }: { url: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false);
+  if (loaded) {
+    return (
+      <div className="mt-1 mb-1">
+        <img
+          src={url}
+          alt={alt}
+          className="max-w-xs max-h-64 rounded-lg border border-border cursor-pointer shadow-sm hover:shadow-md transition-shadow"
+          onClick={() => window.open(url, "_blank")}
+        />
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setLoaded(true)}
+      className="mt-1 mb-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-bg-surface text-text-secondary text-xs hover:bg-bg-hover transition-colors"
+    >
+      <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+      <span>External image — click to load</span>
+    </button>
+  );
+}
 
 // ─── Message content renderer ───
 // Renders links as clickable, images as inline previews
 
-export function MessageContent({ content, server }: { content: string; server: ServerEntry }) {
+export const MessageContent = memo(function MessageContent({ content, server }: { content: string; server: ServerEntry }) {
   const { host, port } = server.config || {};
   const baseUrl = host && port ? getApiUrl(host, port) : "";
 
@@ -18,7 +64,20 @@ export function MessageContent({ content, server }: { content: string; server: S
         const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         if (linkMatch) {
           const [, text, url] = linkMatch;
+
+          // Block data: URIs entirely
+          if (/^data:/i.test(url)) {
+            return <span key={i} className="text-text-secondary italic">[blocked data: URI]</span>;
+          }
+
           const fullUrl = url.startsWith("/") ? `${baseUrl}${url}` : url;
+
+          // Block javascript: URIs
+          if (/^javascript:/i.test(fullUrl)) {
+            return <span key={i} className="text-text-secondary italic">[blocked link]</span>;
+          }
+
+          const isLocal = isSameOriginUrl(url, baseUrl);
           const isImage = /\.(png|jpe?g|gif|webp|bmp|svg|ico|avif)$/i.test(url);
           const isVideo = /\.(mp4|webm|mov|avi|mkv|ogv)$/i.test(url);
           // Uploads without recognizable extension — try to detect from path
@@ -26,6 +85,10 @@ export function MessageContent({ content, server }: { content: string; server: S
             url.includes("/api/uploads/") && !text.startsWith("📎");
 
           if ((isImage || (isUpload && !isVideo)) && !text.startsWith("📎")) {
+            // External images require click-to-load to prevent IP logging
+            if (!isLocal) {
+              return <ExternalImagePlaceholder key={i} url={fullUrl} alt={text} />;
+            }
             return (
               <div key={i} className="mt-1 mb-1">
                 <img
@@ -53,6 +116,19 @@ export function MessageContent({ content, server }: { content: string; server: S
           }
 
           if (isVideo) {
+            if (!isLocal) {
+              return (
+                <a
+                  key={i}
+                  href={fullUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline font-medium"
+                >
+                  {text} (external video)
+                </a>
+              );
+            }
             return (
               <div key={i} className="mt-1 mb-1">
                 <video
@@ -65,12 +141,12 @@ export function MessageContent({ content, server }: { content: string; server: S
             );
           }
 
-          const isSafeUrl = /^https?:\/\//i.test(fullUrl) || fullUrl.startsWith('/');
+          const safe = isSafeScheme(fullUrl);
 
           return (
             <a
               key={i}
-              href={isSafeUrl ? fullUrl : '#'}
+              href={safe ? fullUrl : '#'}
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent hover:underline font-medium"
@@ -104,7 +180,7 @@ export function MessageContent({ content, server }: { content: string; server: S
       })}
     </>
   );
-}
+});
 
 export function formatTime(dateStr: string): string {
   if (!dateStr) return "";

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef, memo } from "react";
 import { useStore } from "../store";
 import { type MemberInfo, getApiUrl } from "../types";
 
@@ -6,11 +6,20 @@ interface MemberListPanelProps {
   visible: boolean;
 }
 
+function membersEqual(a: MemberInfo[], b: MemberInfo[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].user_id !== b[i].user_id || a[i].is_online !== b[i].is_online || a[i].display_name !== b[i].display_name) return false;
+  }
+  return true;
+}
+
 export function MemberListPanel({ visible }: MemberListPanelProps) {
   const activeServerId = useStore((s) => s.activeServerId);
   const servers = useStore((s) => s.servers);
   const [members, setMembers] = useState<MemberInfo[]>([]);
   const [loading, setLoading] = useState(false);
+  const membersRef = useRef<MemberInfo[]>([]);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
 
@@ -33,7 +42,10 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
       );
       if (res.ok) {
         const data: MemberInfo[] = await res.json();
-        setMembers(data);
+        if (!membersEqual(membersRef.current, data)) {
+          membersRef.current = data;
+          setMembers(data);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch members:", err);
@@ -105,7 +117,7 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
   );
 }
 
-function MemberGroup({
+const MemberGroup = memo(function MemberGroup({
   label,
   members,
   server,
@@ -133,9 +145,9 @@ function MemberGroup({
       </div>
     </div>
   );
-}
+});
 
-function MemberItem({
+const MemberItem = memo(function MemberItem({
   member,
   server,
   dimmed,
@@ -207,4 +219,4 @@ function MemberItem({
       </div>
     </div>
   );
-}
+});

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { useStore } from "../store";
+import { setTalkingDirect } from "../hooks/talkingStore";
 import { EmojiPicker } from "./EmojiPicker";
 import { ScreenShareView } from "./ScreenShareView";
 import { MessageContent, formatTime, formatFileSize } from "./MessageContent";
@@ -378,7 +379,7 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           );
           useStore.getState().setVoiceMembers(updated);
         } else if (data.type === "voice_talking") {
-          useStore.getState().setTalking(data.user_id, data.talking);
+          setTalkingDirect(data.user_id, data.talking);
         }
       } catch (err) {
         console.error("Failed to parse WS message:", err);
@@ -397,7 +398,7 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
         reconnectTimerRef.current = setTimeout(connectWs, delay);
       }
     };
-  }, [activeServer?.id, activeChannelId, addMessage]);
+  }, [activeServer?.id, addMessage]);
   useEffect(() => {
     connectWs();
     return () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 
 interface ScreenShareViewProps {
   stream: MediaStream;
@@ -6,7 +6,7 @@ interface ScreenShareViewProps {
   onClose?: () => void;
 }
 
-export function ScreenShareView({
+export const ScreenShareView = memo(function ScreenShareView({
   stream,
   userName,
   onClose,
@@ -122,4 +122,4 @@ export function ScreenShareView({
       <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
     </div>
   );
-}
+});
