@@ -353,22 +353,5 @@ Projekt SivySpeak został zbudowany na ramionach gigantów:
 - [nnnoiseless](https://github.com/jneem/nnnoiseless) — RNN noise suppression
 - [cpal](https://github.com/RustAudio/cpal) — Cross-platform audio I/O
 
----
-
-## 📞 Contact & Community
-
-- 🐛 **Bug Reports**: [GitHub Issues](https://github.com/your-username/sivyspeak/issues)
-- 💡 **Feature Requests**: [GitHub Discussions](https://github.com/your-username/sivyspeak/discussions)
-- 📧 **Email**: dev@sivyspeak.com
-- 💬 **Discord**: Coming soon...
-- 🦋 **Mastodon**: [@sivyspeak@fosstodon.org](https://fosstodon.org/@sivyspeak)
-
----
-
-<div align="center">
-
-**Built with ❤️ and 🦀 Rust**
-
-⭐ Star us on GitHub if you like the project!
 
 </div>
