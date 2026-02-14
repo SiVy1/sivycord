@@ -7,6 +7,7 @@ export interface Channel {
   position: number;
   createdAt: string;
   channel_type: "text" | "voice";
+  encrypted?: boolean;
 }
 
 export interface Message {
@@ -150,4 +151,47 @@ export interface WebhookInfo {
   token: string;
   created_by: string;
   created_at: string;
+}
+
+// ─── E2E Encryption ───
+export interface UserPublicKey {
+  user_id: string;
+  public_key: string;
+  created_at: string;
+}
+
+export interface ChannelKeysResponse {
+  channel_id: string;
+  encrypted: boolean;
+  keys: UserPublicKey[];
+}
+
+// ─── Federation ───
+export interface FederationPeer {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  status: string;
+  direction: string;
+  created_at: string;
+  last_seen: string | null;
+}
+
+export interface FederatedChannel {
+  id: string;
+  local_channel_id: string;
+  peer_id: string;
+  remote_channel_id: string;
+  created_at: string;
+}
+
+export interface FederationStatus {
+  peers: FederationPeer[];
+  linked_channels: FederatedChannel[];
+}
+
+export interface AddPeerResponse {
+  peer: FederationPeer;
+  shared_secret: string;
 }

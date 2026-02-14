@@ -99,6 +99,7 @@ pub async fn create_channel(
         position,
         created_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         channel_type,
+        encrypted: false,
     };
 
     Ok((StatusCode::CREATED, Json(channel)))

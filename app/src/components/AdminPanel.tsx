@@ -7,6 +7,7 @@ import { UsersTab } from "./admin/UsersTab";
 import { ServerTab } from "./admin/ServerTab";
 import { InvitesTab, AuditLogsTab } from "./admin/InvitesTab";
 import { BotsTab } from "./admin/BotsTab";
+import { FederationTab } from "./admin/FederationTab";
 
 interface AdminPanelProps {
   onClose: () => void;
@@ -14,7 +15,7 @@ interface AdminPanelProps {
 
 export function AdminPanel({ onClose }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<
-    "roles" | "users" | "server" | "audit" | "invites" | "bots"
+    "roles" | "users" | "server" | "audit" | "invites" | "bots" | "federation"
   >("roles");
   const servers = useStore((s) => s.servers);
   const activeServerId = useStore((s) => s.activeServerId);
@@ -186,6 +187,18 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
               🤖 Bots
             </button>
           )}
+          {activeServer.type === "legacy" && (
+            <button
+              onClick={() => setActiveTab("federation")}
+              className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+                activeTab === "federation"
+                  ? "bg-bg-surface text-accent border-b-2 border-accent"
+                  : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
+              }`}
+            >
+              🌐 Federation
+            </button>
+          )}
         </div>
 
         {/* Content */}
@@ -196,6 +209,7 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           {activeTab === "invites" && <InvitesTab server={activeServer} />}
           {activeTab === "audit" && <AuditLogsTab server={activeServer} />}
           {activeTab === "bots" && <BotsTab server={activeServer} />}
+          {activeTab === "federation" && <FederationTab server={activeServer} />}
         </div>
       </div>
     </div>

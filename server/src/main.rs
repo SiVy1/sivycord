@@ -230,6 +230,20 @@ async fn main() {
         .route("/api/webhooks", post(routes::webhooks::create_webhook))
         .route("/api/webhooks/{webhook_id}", delete(routes::webhooks::delete_webhook))
         .route("/api/webhooks/{webhook_id}/{token}", post(routes::webhooks::execute_webhook))
+        // E2E Encryption
+        .route("/api/keys", put(routes::encryption::upload_key))
+        .route("/api/keys/{user_id}", get(routes::encryption::get_user_key))
+        .route("/api/channels/{channel_id}/keys", get(routes::encryption::get_channel_keys))
+        .route("/api/channels/{channel_id}/encrypted", put(routes::encryption::set_channel_encrypted))
+        // Federation
+        .route("/api/federation", get(routes::federation::get_federation_status))
+        .route("/api/federation/peers", post(routes::federation::add_peer))
+        .route("/api/federation/accept", post(routes::federation::accept_peer))
+        .route("/api/federation/peers/{peer_id}", delete(routes::federation::remove_peer))
+        .route("/api/federation/peers/{peer_id}/activate", post(routes::federation::activate_peer))
+        .route("/api/federation/channels", post(routes::federation::link_channel))
+        .route("/api/federation/channels/{link_id}", delete(routes::federation::unlink_channel))
+        .route("/api/federation/message", post(routes::federation::receive_federated_message))
         // WebSocket
         .route("/ws", get(ws::ws_handler))
         // Middleware

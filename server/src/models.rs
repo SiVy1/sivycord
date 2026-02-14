@@ -11,6 +11,8 @@ pub struct Channel {
     pub created_at: String,
     #[serde(default = "default_channel_type")]
     pub channel_type: String,
+    #[serde(default)]
+    pub encrypted: bool,
 }
 
 fn default_channel_type() -> String {
@@ -58,6 +60,40 @@ pub struct InviteCode {
     pub created_at: String,
     pub uses: i64,
     pub max_uses: Option<i64>,
+}
+
+// ─── E2E Encryption ───
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct UserPublicKey {
+    pub user_id: String,
+    pub public_key: String,
+    pub key_type: String,
+    pub created_at: String,
+}
+
+// ─── Federation ───
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FederationPeer {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: i64,
+    pub shared_secret: String,
+    pub status: String,
+    pub direction: String,
+    pub created_at: String,
+    pub last_seen: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FederatedChannel {
+    pub id: String,
+    pub local_channel_id: String,
+    pub peer_id: String,
+    pub remote_channel_id: String,
+    pub created_at: String,
 }
 
 // ─── Permissions ───

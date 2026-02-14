@@ -9,9 +9,19 @@ import {
   type WsServerMessage,
   type ChatEntry,
   type ApiMessage,
+  type ChannelKeysResponse,
   getApiUrl,
   getWsUrl,
 } from "../types";
+import type { ChannelParticipantKey } from "../lib/crypto";
+import {
+  generateKeyPair,
+  hasLocalKeyPair,
+  getLocalPublicKey,
+  encryptChannelMessage,
+  decryptChannelMessage,
+  isChannelEncrypted as isMsgChannelEncrypted,
+} from "../lib/crypto";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const WS_RECONNECT_DELAY = 2000;
@@ -57,6 +67,12 @@ export function ChatArea() {
   const activeServer = servers.find((s) => s.id === activeServerId);
   const activeChannel = channels.find((c) => c.id === activeChannelId);
   const isAuthenticated = !!activeServer?.config.authToken;
+
+  // E2E encryption state
+  const [e2eEnabled, setE2eEnabled] = useState(false);
+  const [e2eReady, setE2eReady] = useState(false);
+  const [, setChannelKeys] = useState<ChannelParticipantKey[]>([]);
+  const channelKeysRef = useRef<ChannelParticipantKey[]>([]);
 
   // Scroll to bottom on new messages only if already at bottom
   useEffect(() => {
@@ -161,6 +177,83 @@ export function ChatArea() {
     return () => controller.abort();
   }, [activeChannelId, activeServer?.id]);
 
+  // E2E encryption setup — detect encrypted channel and fetch/upload keys
+  useEffect(() => {
+    setE2eEnabled(false);
+    setE2eReady(false);
+    setChannelKeys([]);
+    channelKeysRef.current = [];
+
+    if (!activeServer || activeServer.type === "p2p" || !activeChannelId || !isAuthenticated) return;
+    if (!activeChannel?.encrypted) return;
+
+    const { host, port, authToken, userId } = activeServer.config;
+    if (!host || !port || !authToken || !userId) return;
+
+    const baseUrl = getApiUrl(host, port);
+    let cancelled = false;
+
+    (async () => {
+      try {
+        // Ensure we have a local key pair
+        const haveKey = await hasLocalKeyPair(userId);
+        if (!haveKey) {
+          const pubKey = await generateKeyPair(userId);
+          // Upload our public key to the server
+          await fetch(`${baseUrl}/api/keys`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({ public_key: pubKey }),
+          });
+        } else {
+          // Check if key is already on the server; upload if not
+          const res = await fetch(`${baseUrl}/api/keys/${userId}`);
+          if (res.status === 404) {
+            const pubKey = await getLocalPublicKey(userId);
+            if (pubKey) {
+              await fetch(`${baseUrl}/api/keys`, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${authToken}`,
+                },
+                body: JSON.stringify({ public_key: pubKey }),
+              });
+            }
+          }
+        }
+
+        // Fetch all participant keys for this channel
+        const keysRes = await fetch(`${baseUrl}/api/channels/${activeChannelId}/keys`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+        if (!keysRes.ok) throw new Error("Failed to fetch channel keys");
+
+        const keysData: ChannelKeysResponse = await keysRes.json();
+        if (cancelled) return;
+
+        const participants: ChannelParticipantKey[] = keysData.keys.map((k) => ({
+          user_id: k.user_id,
+          public_key: k.public_key,
+        }));
+
+        setChannelKeys(participants);
+        channelKeysRef.current = participants;
+        setE2eEnabled(true);
+        setE2eReady(true);
+      } catch (err) {
+        console.error("E2E setup failed:", err);
+        setE2eEnabled(false);
+        setE2eReady(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [activeChannelId, activeServer?.id, activeChannel?.encrypted]);
+
   // WebSocket connection with auto-reconnect
   const connectWs = useCallback(() => {
     if (!activeServer) return;
@@ -200,13 +293,49 @@ export function ChatArea() {
           if (seenMsgIds.current.has(data.id)) return;
           seenMsgIds.current.add(data.id);
 
+          let content = data.content || "";
+
+          // Attempt E2E decryption if the message is encrypted
+          if (isMsgChannelEncrypted(content)) {
+            const myUserId = activeServer?.config.userId;
+            const senderKey = channelKeysRef.current.find((k) => k.user_id === data.user_id);
+            if (myUserId && senderKey) {
+              decryptChannelMessage(content, myUserId, senderKey.public_key)
+                .then((decrypted) => {
+                  addMessage({
+                    id: data.id,
+                    channelId: data.channel_id,
+                    userId: data.user_id,
+                    userName: data.user_name || "Unknown",
+                    avatarUrl: data.avatar_url,
+                    content: decrypted,
+                    createdAt: data.created_at || "",
+                  });
+                })
+                .catch(() => {
+                  addMessage({
+                    id: data.id,
+                    channelId: data.channel_id,
+                    userId: data.user_id,
+                    userName: data.user_name || "Unknown",
+                    avatarUrl: data.avatar_url,
+                    content: "🔒 [Encrypted message — cannot decrypt]",
+                    createdAt: data.created_at || "",
+                  });
+                });
+              return; // handled async
+            }
+            // No key available — show locked
+            content = "🔒 [Encrypted message — cannot decrypt]";
+          }
+
           addMessage({
             id: data.id,
             channelId: data.channel_id,
             userId: data.user_id,
             userName: data.user_name || "Unknown",
             avatarUrl: data.avatar_url,
-            content: data.content || "",
+            content,
             createdAt: data.created_at || "",
           });
         } else if (data.type === "voice_state_sync") {
@@ -433,16 +562,30 @@ export function ChatArea() {
     )
       return;
 
+    // Encrypt if E2E is enabled for this channel
+    let finalContent = trimmed;
+    if (e2eEnabled && e2eReady && channelKeysRef.current.length > 0) {
+      try {
+        finalContent = await encryptChannelMessage(
+          trimmed,
+          activeServer.config.userId || "unknown",
+          channelKeysRef.current,
+        );
+      } catch (err) {
+        console.error("E2E encryption failed, sending plaintext:", err);
+      }
+    }
+
     const msg: WsClientMessage = {
       type: "send_message",
       channel_id: activeChannelId,
-      content: trimmed,
+      content: finalContent,
       user_id: activeServer.config.userId || "unknown",
       user_name: displayName || "Anonymous",
     };
     wsRef.current.send(JSON.stringify(msg));
     setInput("");
-  }, [input, activeChannelId, activeServer, displayName]);
+  }, [input, activeChannelId, activeServer, displayName, e2eEnabled, e2eReady]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -484,6 +627,22 @@ export function ChatArea() {
               {activeChannel.description}
             </span>
           </>
+        )}
+        {/* E2E encryption indicator */}
+        {activeChannel?.encrypted && (
+          <div
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider ${
+              e2eReady
+                ? "bg-green-500/10 border-green-500/30 text-green-400"
+                : "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 animate-pulse"
+            }`}
+            title={e2eReady ? "End-to-End Encrypted" : "Setting up encryption..."}
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            </svg>
+            {e2eReady ? "E2E" : "..."}
+          </div>
         )}
         <div className="ml-auto flex items-center gap-3">
           {activeServer?.type === "p2p" ? (

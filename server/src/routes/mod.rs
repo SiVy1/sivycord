@@ -11,3 +11,5 @@ pub mod audit_logs;
 pub mod members;
 pub mod stats;
 pub mod webhooks;
+pub mod encryption;
+pub mod federation;

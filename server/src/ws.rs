@@ -202,12 +202,60 @@ async fn handle_socket(
                             user_id: user_id.clone(),
                             user_name: user_name.clone(),
                             avatar_url,
-                            content,
+                            content: content.clone(),
                             created_at: now,
                         };
 
                         let tx = state.get_channel_tx(&channel_id);
                         let _ = tx.send(broadcast_msg);
+
+                        // Federation: forward message to linked remote channels
+                        let fed_state = state.clone();
+                        let fed_channel_id = channel_id.clone();
+                        let fed_user_name = user_name.clone();
+                        let fed_content = content;
+                        tokio::spawn(async move {
+                            let links: Vec<(String, String)> = sqlx::query_as(
+                                "SELECT fc.remote_channel_id, fp.id FROM federated_channels fc JOIN federation_peers fp ON fp.id = fc.peer_id WHERE fc.local_channel_id = ? AND fp.status = 'active'"
+                            )
+                            .bind(&fed_channel_id)
+                            .fetch_all(&fed_state.db)
+                            .await
+                            .unwrap_or_default();
+
+                            for (remote_channel_id, peer_id) in links {
+                                let peer: Option<(String, i64, String, String)> = sqlx::query_as(
+                                    "SELECT host, port, shared_secret, name FROM federation_peers WHERE id = ?"
+                                )
+                                .bind(&peer_id)
+                                .fetch_optional(&fed_state.db)
+                                .await
+                                .unwrap_or(None);
+
+                                if let Some((host, port, secret, _)) = peer {
+                                    let server_name = sqlx::query_scalar::<_, String>(
+                                        "SELECT value FROM server_settings WHERE key = 'server_name'"
+                                    )
+                                    .fetch_optional(&fed_state.db)
+                                    .await
+                                    .unwrap_or(None)
+                                    .unwrap_or_else(|| "Unknown Server".to_string());
+
+                                    let url = format!("http://{}:{}/api/federation/message", host, port);
+                                    let client = reqwest::Client::new();
+                                    let _ = client.post(&url)
+                                        .header("Authorization", format!("Federation {}", secret))
+                                        .json(&serde_json::json!({
+                                            "channel_id": remote_channel_id,
+                                            "user_name": fed_user_name,
+                                            "content": fed_content,
+                                            "server_name": server_name,
+                                        }))
+                                        .send()
+                                        .await;
+                                }
+                            }
+                        });
                     }
 
                     // ─── Voice signaling ───
