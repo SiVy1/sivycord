@@ -4,6 +4,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tokio::sync::broadcast;
+use tokio::sync::Mutex;
 
 use crate::models::{VoicePeer, WsServerMessage};
 
@@ -23,6 +24,8 @@ pub struct AppState {
     pub jwt_secret: String,
     pub external_host: String,
     pub external_port: u16,
+    /// One-time setup key for first admin claim (None = already claimed)
+    pub setup_key: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
@@ -37,6 +40,7 @@ impl AppState {
             jwt_secret,
             external_host,
             external_port,
+            setup_key: Arc::new(Mutex::new(None)),
         }
     }
 

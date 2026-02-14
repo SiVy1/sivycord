@@ -30,6 +30,8 @@ pub struct RegisterRequest {
     pub username: String,
     pub password: String,
     pub display_name: String,
+    /// Optional one-time setup key to claim admin on first registration
+    pub setup_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,6 +130,48 @@ pub async fn register(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
+    // If setup_key provided, validate and grant admin role
+    if let Some(key) = &req.setup_key {
+        let key = key.trim();
+        if !key.is_empty() {
+            let mut setup_key_guard = state.setup_key.lock().await;
+            if let Some(ref valid_key) = *setup_key_guard {
+                if key == valid_key {
+                    // Grant admin role
+                    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+                    let admin_role_id = "admin-role";
+
+                    // Ensure Admin role exists
+                    sqlx::query("INSERT OR IGNORE INTO roles (id, name, color, position, permissions, created_at) VALUES (?, 'Admin', '#FF0000', 999, ?, ?)")
+                        .bind(admin_role_id)
+                        .bind(crate::models::Permissions::ADMINISTRATOR.bits())
+                        .bind(&now)
+                        .execute(&state.db)
+                        .await
+                        .ok();
+
+                    // Assign role
+                    sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id, assigned_at) VALUES (?, ?, ?)")
+                        .bind(&user_id)
+                        .bind(admin_role_id)
+                        .bind(&now)
+                        .execute(&state.db)
+                        .await
+                        .ok();
+
+                    // Consume the key — one-time use
+                    *setup_key_guard = None;
+
+                    tracing::info!("Setup key claimed by user '{}' — admin role granted", &username);
+                } else {
+                    return Err((StatusCode::FORBIDDEN, "Invalid setup key".into()));
+                }
+            } else {
+                return Err((StatusCode::GONE, "Setup key already used".into()));
+            }
+        }
+    }
+
     let token = create_jwt(&state.jwt_secret, &user_id, &username, &display_name)?;
 
     Ok((
@@ -225,6 +269,14 @@ pub async fn get_me(
         display_name: user.display_name,
         avatar_url: user.avatar_url,
     }))
+}
+
+/// GET /api/setup-status — check if a setup key is available (for fresh server)
+pub async fn setup_status(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let has_key = state.setup_key.lock().await.is_some();
+    Json(serde_json::json!({ "setup_key_available": has_key }))
 }
 
 // ─── JWT helpers ───

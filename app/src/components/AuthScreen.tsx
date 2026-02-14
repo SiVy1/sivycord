@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { AuthUser } from "../types";
 import { getApiUrl } from "../types";
 
@@ -21,8 +21,19 @@ export function AuthScreen({
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [setupKey, setSetupKey] = useState("");
+  const [setupKeyAvailable, setSetupKeyAvailable] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Check if server has an unclaimed setup key
+  useEffect(() => {
+    const baseUrl = getApiUrl(serverHost, serverPort);
+    fetch(`${baseUrl}/api/setup-status`)
+      .then((r) => r.json())
+      .then((data) => setSetupKeyAvailable(!!data.setup_key_available))
+      .catch(() => setSetupKeyAvailable(false));
+  }, [serverHost, serverPort]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +48,7 @@ export function AuthScreen({
               username: username.trim().toLowerCase(),
               password,
               display_name: displayName.trim() || username.trim(),
+              ...(setupKey.trim() ? { setup_key: setupKey.trim() } : {}),
             }
           : { username: username.trim().toLowerCase(), password };
 
@@ -51,6 +63,8 @@ export function AuthScreen({
         const text = await res.text();
         if (res.status === 409) throw new Error("Username already taken");
         if (res.status === 401) throw new Error("Invalid username or password");
+        if (res.status === 403) throw new Error("Invalid setup key");
+        if (res.status === 410) throw new Error("Setup key already used");
         throw new Error(text || `Server error ${res.status}`);
       }
 
@@ -145,6 +159,24 @@ export function AuthScreen({
                 maxLength={32}
                 className="w-full px-4 py-2.5 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent transition-colors"
               />
+            </div>
+          )}
+
+          {mode === "register" && setupKeyAvailable && (
+            <div>
+              <label className="text-xs text-text-secondary mb-1 block">
+                🔑 Setup Key <span className="text-accent">(become admin)</span>
+              </label>
+              <input
+                type="text"
+                value={setupKey}
+                onChange={(e) => setSetupKey(e.target.value)}
+                placeholder="Paste setup key from server console"
+                className="w-full px-4 py-2.5 bg-bg-input border border-amber-500/30 rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-amber-500 transition-colors"
+              />
+              <p className="text-[10px] text-amber-400/70 mt-1">
+                One-time key from the server console. Grants admin role.
+              </p>
             </div>
           )}
 

@@ -171,6 +171,36 @@ async fn main() {
         args.external_port.unwrap_or(port),
     );
 
+    // --- Setup Key: generate if no users exist ---
+    {
+        let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&pool)
+            .await
+            .unwrap_or(0);
+
+        if user_count == 0 {
+            use rand::Rng;
+            let key: String = rand::thread_rng()
+                .sample_iter(&rand::distributions::Alphanumeric)
+                .take(24)
+                .map(char::from)
+                .collect();
+            let setup_key = format!("setup-{}", key);
+            *state.setup_key.lock().await = Some(setup_key.clone());
+
+            println!();
+            println!("  ╔══════════════════════════════════════════════╗");
+            println!("  ║          🔑 SETUP KEY (first admin)          ║");
+            println!("  ╠══════════════════════════════════════════════╣");
+            println!("  ║  {:<45}║", &setup_key);
+            println!("  ╠══════════════════════════════════════════════╣");
+            println!("  ║  Enter this key when registering to become   ║");
+            println!("  ║  the server admin. One-time use only!        ║");
+            println!("  ╚══════════════════════════════════════════════╝");
+            println!();
+        }
+    }
+
     let allowed_host = state.external_host.clone();
     let allowed_port = port;
 
@@ -179,6 +209,7 @@ async fn main() {
         .route("/api/register", post(routes::auth::register))
         .route("/api/login", post(routes::auth::login))
         .route("/api/me", get(routes::auth::get_me))
+        .route("/api/setup-status", get(routes::auth::setup_status))
         // Uploads
         .route("/api/upload", post(routes::uploads::upload_file))
         .route("/api/uploads/{id}", get(routes::uploads::serve_upload))
