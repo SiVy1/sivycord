@@ -166,6 +166,7 @@ enum PullResult {
 pub struct VoicePeerInfo {
     pub node_id: String,
     pub channel_id: String,
+    pub display_name: String,
     pub joined_at: String,
 }
 
@@ -174,9 +175,11 @@ pub async fn moq_join_voice(
     state: tauri::State<'_, IrohState>,
     doc_id: String,
     channel_id: String,
+    display_name: String,
 ) -> Result<(), String> {
-    log::info!("[Voice] moq_join_voice: doc_id={}, channel_id={}", doc_id, channel_id);
+    log::info!("[Voice] moq_join_voice: doc_id={}, channel_id={}, name={}", doc_id, channel_id, display_name);
     let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    let dn = display_name;
     state.on_rt(move |node, author_id| async move {
         let client = node.client();
         let doc = client.docs().open(ns).await.map_err(|e| e.to_string())?
@@ -186,6 +189,7 @@ pub async fn moq_join_voice(
         let info = VoicePeerInfo {
             node_id: node_id.clone(),
             channel_id: channel_id.clone(),
+            display_name: dn,
             joined_at: iso_now(),
         };
 

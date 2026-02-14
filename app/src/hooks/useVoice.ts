@@ -115,23 +115,20 @@ export function useVoice() {
         if (docId) {
           const { invoke } = await import("@tauri-apps/api/core");
           // Register presence in the doc so others can see us
-          await invoke("moq_join_voice", { docId, channelId });
+          const dn = displayName || currentUser?.display_name || "Anonymous";
+          await invoke("moq_join_voice", { docId, channelId, displayName: dn });
           await useStore.getState().startP2PVoice(docId);
           playVoiceSound("join");
 
           // Poll voice peers periodically
           const pollPeers = async () => {
             try {
-              const peers = await invoke<{ node_id: string; channel_id: string; joined_at: string }[]>(
+              const peers = await invoke<{ node_id: string; channel_id: string; display_name: string; joined_at: string }[]>(
                 "moq_list_voice_peers", { docId, channelId }
               );
-              const identities = await invoke<{ node_id: string; display_name: string }[]>(
-                "list_identities", { docId }
-              );
-              const nameMap = new Map(identities.map((i) => [i.node_id, i.display_name]));
               const members = peers.map((p) => ({
                 user_id: p.node_id,
-                user_name: nameMap.get(p.node_id) || p.node_id.substring(0, 8),
+                user_name: p.display_name || p.node_id.substring(0, 8),
                 channel_id: p.channel_id,
                 is_muted: false,
                 is_deafened: false,

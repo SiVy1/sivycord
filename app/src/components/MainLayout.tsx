@@ -37,6 +37,7 @@ export function MainLayout() {
           key.startsWith("identity/") ||
           key.startsWith("roles/") ||
           key.startsWith("voice/") ||
+          key.startsWith("presence/") ||
           (key.startsWith("channels/") && key.includes("/meta"))
         ) {
           return; // Skip non-message entries

@@ -139,6 +139,7 @@ export const useStore = create<AppState>()(
       setMessages: (messages) => set({ messages }),
       addMessage: (message) =>
         set((s) => {
+          if (s.messages.some((m) => m.id === message.id)) return s;
           const msgs = [...s.messages, message];
           return { messages: msgs.length > 500 ? msgs.slice(-500) : msgs };
         }),
