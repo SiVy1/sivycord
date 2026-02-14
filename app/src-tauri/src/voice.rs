@@ -1,4 +1,7 @@
-﻿use std::collections::{BTreeMap, VecDeque};
+﻿use std::str::FromStr;
+use std::sync::Arc;
+use std::collections::{BTreeMap, VecDeque};
+use crate::state::IrohState;
 
 // ── Voice constants (shared with moq.rs) ────────────────────────────
 const OPUS_SAMPLE_RATE: u32 = 48_000;

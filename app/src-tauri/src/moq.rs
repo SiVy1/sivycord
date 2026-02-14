@@ -334,7 +334,6 @@ pub async fn moq_start_voice(
     // ── Shared jitter buffer + ring buffer ──────────────────────────
     let jitter = Arc::new(std::sync::Mutex::new(JitterBuffer::new()));
     let jitter_for_recv = jitter.clone();
-    let jitter_for_output = jitter.clone();
 
     // Ring buffer for jitter-buffer-smoothed output
     let ring_size: usize = 48000; // ~1 second buffer
