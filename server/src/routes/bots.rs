@@ -5,6 +5,7 @@ use axum::{
 };
 use rand::Rng;
 use sea_orm::*;
+use sea_orm::prelude::Expr;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

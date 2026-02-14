@@ -48,7 +48,7 @@ async fn main() {
 
     let args = Args::parse();
     let port = args.port;
-    let db_path = args.db_path;
+    let db_path = args.db_path.clone();
 
     // JWT secret: from env, from file, or generate and save to file
     let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
@@ -123,7 +123,7 @@ async fn main() {
 
     // --- Setup Key: generate if no users exist ---
     {
-        use sea_orm::EntityTrait;
+        use sea_orm::{EntityTrait, PaginatorTrait};
         let user_count = entities::user::Entity::find()
             .count(&db)
             .await

@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use sea_orm::*;
+use sea_orm::prelude::Expr;
 use serde::{Deserialize, Serialize};
 
 use crate::entities::{channel, message, user_key};

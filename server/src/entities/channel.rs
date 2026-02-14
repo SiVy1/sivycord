@@ -30,11 +30,23 @@ fn default_server_id() -> String {
 pub enum Relation {
     #[sea_orm(has_many = "super::message::Entity")]
     Message,
+    #[sea_orm(
+        belongs_to = "super::server::Entity",
+        from = "Column::ServerId",
+        to = "super::server::Column::Id"
+    )]
+    Server,
 }
 
 impl Related<super::message::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Message.def()
+    }
+}
+
+impl Related<super::server::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Server.def()
     }
 }
 

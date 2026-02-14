@@ -1,5 +1,5 @@
 use axum::{extract::State, http::{HeaderMap, StatusCode}, Json};
-use sea_orm::{EntityTrait, QueryOrder, QuerySelect, Set};
+use sea_orm::{EntityTrait, QueryOrder, QuerySelect, QueryFilter, ColumnTrait, Set};
 use crate::entities::audit_log;
 use crate::models::{AuditLog, Permissions};
 use crate::routes::auth::extract_claims;

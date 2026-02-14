@@ -5,6 +5,7 @@ use axum::{
 };
 use rand::Rng;
 use sea_orm::*;
+use sea_orm::prelude::Expr;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -383,7 +384,7 @@ pub async fn receive_federated_message(
         id: Set(msg_id.clone()),
         channel_id: Set(link.local_channel_id.clone()),
         user_id: Set(format!("fed:{}", peer.id)),
-        user_name: Set(Some(federated_user_name.clone())),
+        user_name: Set(federated_user_name.clone()),
         content: Set(req.content.clone()),
         created_at: Set(now.clone()),
         ..Default::default()

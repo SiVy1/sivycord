@@ -205,7 +205,7 @@ async fn handle_socket(
                             id: Set(msg_id.clone()),
                             channel_id: Set(channel_id.clone()),
                             user_id: Set(user_id.clone()),
-                            user_name: Set(Some(user_name.clone())),
+                            user_name: Set(user_name.clone()),
                             content: Set(content.clone()),
                             created_at: Set(now.clone()),
                             ..Default::default()

@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use sea_orm::*;
+use sea_orm::prelude::Expr;
 use uuid::Uuid;
 
 use crate::entities::{ban, bot, channel, invite_code, role, server, server_member, user, user_role};
@@ -107,7 +108,7 @@ pub async fn create_server(
         position: Set(999),
         permissions: Set(Permissions::ADMINISTRATOR.bits()),
         created_at: Set(now.clone()),
-        server_id: Set(Some(server_id.clone())),
+        server_id: Set(server_id.clone()),
     };
     role::Entity::insert(admin_role)
         .exec(&state.db)
@@ -136,10 +137,10 @@ pub async fn create_server(
     let general_ch = channel::ActiveModel {
         id: Set(general_id.clone()),
         name: Set("general".to_string()),
-        description: Set(Some("General chat".to_string())),
+        description: Set("General chat".to_string()),
         position: Set(0),
         channel_type: Set("text".to_string()),
-        server_id: Set(Some(server_id.clone())),
+        server_id: Set(server_id.clone()),
         ..Default::default()
     };
     channel::Entity::insert(general_ch)
@@ -151,10 +152,10 @@ pub async fn create_server(
     let voice_ch = channel::ActiveModel {
         id: Set(voice_id.clone()),
         name: Set("Voice Lounge".to_string()),
-        description: Set(Some("Voice channel".to_string())),
+        description: Set("Voice channel".to_string()),
         position: Set(1),
         channel_type: Set("voice".to_string()),
-        server_id: Set(Some(server_id.clone())),
+        server_id: Set(server_id.clone()),
         ..Default::default()
     };
     channel::Entity::insert(voice_ch)
@@ -166,10 +167,10 @@ pub async fn create_server(
     let invite_code_val = crate::token::generate_invite_code();
     let ic = invite_code::ActiveModel {
         code: Set(invite_code_val.clone()),
+        created_at: Set(now.clone()),
         max_uses: Set(None),
         uses: Set(0),
-        created_by: Set(None),
-        server_id: Set(Some(server_id.clone())),
+        server_id: Set(server_id.clone()),
     };
     invite_code::Entity::insert(ic)
         .exec(&state.db)

@@ -1,5 +1,5 @@
 use axum::{extract::State, http::HeaderMap, Json};
-use sea_orm::{EntityTrait, QuerySelect, ColumnTrait, QueryFilter, JoinType, RelationTrait};
+use sea_orm::{EntityTrait, QuerySelect, ColumnTrait, QueryFilter, JoinType, RelationTrait, PaginatorTrait};
 use crate::entities::{server_member, message, channel, role, invite_code};
 use crate::models::ServerStats;
 use crate::routes::servers::extract_server_id;

@@ -1,5 +1,6 @@
 use axum::{extract::State, Json, response::IntoResponse, http::{HeaderMap, StatusCode}};
 use sea_orm::*;
+use sea_orm::prelude::Expr;
 use crate::entities::{server, channel};
 use crate::models::{Permissions, ServerInfo, UpdateServerRequest};
 use crate::state::AppState;
