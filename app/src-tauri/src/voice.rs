@@ -14,8 +14,9 @@ const JITTER_MIN_MS: u32 = 20;
 const JITTER_MAX_MS: u32 = 200;
 const JITTER_INITIAL_MS: u32 = 60;
 const JITTER_CAPACITY: usize = 50;
-const REORDER_WINDOW: u16 = 16;
 const HEADER_SIZE: usize = 4;
+const RING_BUFFER_SIZE: usize = 48_000;
+const AUDIO_CHANNEL_CAPACITY: usize = 100;
 
 // ── Packet header helpers ───────────────────────────────────────────
 fn make_header(seq: u16, has_fec: bool) -> [u8; HEADER_SIZE] {
@@ -160,8 +161,8 @@ pub async fn start_voice(
     .map_err(|e| format!("Task join error: {}", e))?
     .map_err(|e| e.to_string())?;
 
-    // Channel to bridge sync audio capture callback -> async gossip broadcast
-    let (audio_tx, mut audio_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    // WARN-2: Bounded channel to prevent unbounded memory growth
+    let (audio_tx, mut audio_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(AUDIO_CHANNEL_CAPACITY);
 
     // Cancellation signal
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
@@ -182,15 +183,11 @@ pub async fn start_voice(
         }
     });
 
-    // ── Shared jitter buffer + ring buffer ──────────────────────────
+    // ── Shared jitter buffer ────────────────────────────────────────
     let jitter = Arc::new(std::sync::Mutex::new(JitterBuffer::new()));
     let jitter_for_recv = jitter.clone();
-    let ring_size: usize = 48000; // ~1 second buffer
-    let ring = Arc::new(std::sync::Mutex::new(
-        VecDeque::<f32>::with_capacity(ring_size),
-    ));
-    let ring_for_output = ring.clone();
-    let ring_for_drainer = ring.clone();
+    // CRIT-2: Lock-free SPSC ring buffer instead of Arc<Mutex<VecDeque>>
+    let (ring_producer, ring_consumer) = rtrb::RingBuffer::<f32>::new(RING_BUFFER_SIZE);
 
     // ── Output thread ───────────────────────────────────────────────
     let (output_stop_tx, output_stop_rx) = std::sync::mpsc::channel::<()>();
@@ -222,7 +219,8 @@ pub async fn start_voice(
             buffer_size: cpal::BufferSize::Default,
         };
 
-        let ring_reader = ring_for_output;
+        // CRIT-2: Lock-free consumer — no Mutex in audio output callback
+        let mut ring_reader = ring_consumer;
         // Resample from 48kHz mono ring buffer to device native format
         let step = OPUS_SAMPLE_RATE as f64 / dev_rate as f64;
         let mut last_sample = 0.0f32;
@@ -231,12 +229,11 @@ pub async fn start_voice(
         let output_stream = match out_device.build_output_stream(
             &out_config,
             move |data: &mut [f32], _: &_| {
-                let mut rb = ring_reader.lock().unwrap();
                 let frames = data.len() / dev_ch;
                 for i in 0..frames {
                     frac += step;
                     while frac >= 1.0 {
-                        last_sample = rb.pop_front().unwrap_or(last_sample);
+                        last_sample = ring_reader.pop().unwrap_or(last_sample);
                         frac -= 1.0;
                     }
                     for ch in 0..dev_ch {
@@ -290,28 +287,23 @@ pub async fn start_voice(
         let mut stats_packets: u64 = 0;
         let mut stats_plc: u64 = 0;
 
+        let mut ring_writer = ring_producer;
         loop {
-            // Drain jitter buffer → ring buffer
+            // WARN-4: Drain jitter → lock-free ring (no nested Mutex locks)
             {
                 let mut jb = jitter_for_recv.lock().unwrap();
                 loop {
                     match jb.pull() {
                         PullResult::Frame(pcm) => {
-                            let mut rb = ring_for_drainer.lock().unwrap();
                             for &s in &pcm {
-                                if rb.len() < ring_size {
-                                    rb.push_back(s);
-                                }
+                                let _ = ring_writer.push(s);
                             }
                         }
                         PullResult::Lost => {
                             if let Ok(n) = plc_decoder.decode_float(&[], &mut plc_buf, false) {
                                 stats_plc += 1;
-                                let mut rb = ring_for_drainer.lock().unwrap();
                                 for &s in &plc_buf[..n] {
-                                    if rb.len() < ring_size {
-                                        rb.push_back(s);
-                                    }
+                                    let _ = ring_writer.push(s);
                                 }
                             }
                         }
@@ -408,6 +400,11 @@ pub async fn start_voice(
         let mut resample_frac = 0.0f64;
         let mut send_seq: u16 = 0;
 
+        // CRIT-1: Pre-allocate buffers outside callback (avoid RT-thread heap alloc)
+        let mut denoised_pre = vec![0.0f32; DENOISE_FRAME_SIZE];
+        let mut compressed_pre = vec![0u8; MAX_OPUS_PACKET];
+        let mut packet_pre = vec![0u8; HEADER_SIZE + MAX_OPUS_PACKET];
+
         let input_stream = match device.build_input_stream(
             &input_config,
             move |data: &[f32], _: &_| {
@@ -425,19 +422,17 @@ pub async fn start_voice(
                         resample_frac -= 1.0;
 
                         if denoise_buf.len() == DENOISE_FRAME_SIZE {
-                            let mut denoised = vec![0.0f32; DENOISE_FRAME_SIZE];
-                            denoiser.process_frame(&mut denoised, &denoise_buf);
+                            denoiser.process_frame(&mut denoised_pre, &denoise_buf);
                             denoise_buf.clear();
-                            opus_buf.extend_from_slice(&denoised);
+                            opus_buf.extend_from_slice(&denoised_pre);
 
                             if opus_buf.len() >= OPUS_FRAME_SAMPLES {
-                                let mut compressed = vec![0u8; MAX_OPUS_PACKET];
-                                if let Ok(len) = encoder.encode_float(&opus_buf[..OPUS_FRAME_SAMPLES], &mut compressed) {
+                                if let Ok(len) = encoder.encode_float(&opus_buf[..OPUS_FRAME_SAMPLES], &mut compressed_pre) {
                                     let header = make_header(send_seq, true);
-                                    let mut packet = Vec::with_capacity(HEADER_SIZE + len);
-                                    packet.extend_from_slice(&header);
-                                    packet.extend_from_slice(&compressed[..len]);
-                                    let _ = audio_tx.send(packet);
+                                    packet_pre[..HEADER_SIZE].copy_from_slice(&header);
+                                    packet_pre[HEADER_SIZE..HEADER_SIZE + len].copy_from_slice(&compressed_pre[..len]);
+                                    // WARN-2: try_send drops packet if bounded channel is full
+                                    let _ = audio_tx.try_send(packet_pre[..HEADER_SIZE + len].to_vec());
                                     send_seq = send_seq.wrapping_add(1);
                                 }
                                 opus_buf.drain(..OPUS_FRAME_SAMPLES);

@@ -9,6 +9,7 @@ use axum::{
 };
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 use crate::state::AppState;
@@ -56,10 +57,32 @@ pub struct UserInfo {
 
 // ─── Routes ───
 
+/// Extract client IP from headers (X-Forwarded-For, X-Real-IP, or fallback)
+fn client_ip(headers: &HeaderMap) -> String {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
+        .or_else(|| {
+            headers
+                .get("x-real-ip")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 pub async fn register(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), (StatusCode, String)> {
+    // Rate limit
+    let ip = client_ip(&headers);
+    if !state.auth_rate_limiter.check(&ip) {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "Too many requests, try again later".into()));
+    }
+
     let username = req.username.trim().to_lowercase();
     let display_name = req.display_name.trim().to_string();
     let password = req.password.trim().to_string();
@@ -143,7 +166,9 @@ pub async fn register(
         if !key.is_empty() {
             let mut setup_key_guard = state.setup_key.lock().await;
             if let Some(ref valid_key) = *setup_key_guard {
-                if key == valid_key {
+                // Constant-time comparison to prevent timing attacks
+                let keys_match = key.as_bytes().ct_eq(valid_key.as_bytes()).into();
+                if keys_match {
                     // Grant admin role
                     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
                     let admin_role_id = "admin-role";
@@ -197,8 +222,15 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, (StatusCode, String)> {
+    // Rate limit
+    let ip = client_ip(&headers);
+    if !state.auth_rate_limiter.check(&ip) {
+        return Err((StatusCode::TOO_MANY_REQUESTS, "Too many requests, try again later".into()));
+    }
+
     let username = req.username.trim().to_lowercase();
 
     #[derive(sqlx::FromRow)]

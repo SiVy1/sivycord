@@ -1,17 +1,20 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Json,
 };
 
 use crate::models::{Message, MessagesQuery};
+use crate::routes::auth;
 use crate::state::AppState;
 
 pub async fn get_messages(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(channel_id): Path<String>,
     Query(query): Query<MessagesQuery>,
-) -> Result<Json<Vec<Message>>, StatusCode> {
+) -> Result<Json<Vec<Message>>, (StatusCode, String)> {
+    let _claims = auth::extract_claims(&state.jwt_secret, &headers)?;
     let limit = query.limit.unwrap_or(50).min(100);
 
     let messages = if let Some(before) = &query.before {
@@ -32,7 +35,7 @@ pub async fn get_messages(
         .fetch_all(&state.db)
         .await
     }
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let mut messages = messages;
     messages.reverse();

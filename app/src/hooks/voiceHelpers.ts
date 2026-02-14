@@ -1,5 +1,6 @@
 import { useStore } from "../store";
 import { getApiUrl } from "../types";
+import { setTalkingDirect, clearAllTalking } from "./talkingStore";
 
 // ─── Module-level singleton state ───
 // These live outside the hook so every component calling useVoice()
@@ -175,7 +176,7 @@ export function broadcastTalkingState(talking: boolean) {
       }),
     );
   }
-  useStore.getState().setTalking(localUserId, talking);
+  setTalkingDirect(localUserId, talking);
 }
 
 // ─── Helper: start VAD ───
@@ -388,6 +389,7 @@ export function cleanupAll() {
 
   stopVAD();
   broadcastTalkingState(false);
+  clearAllTalking();
   isMutedLocal = false;
   isDeafenedLocal = false;
 

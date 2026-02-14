@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 
 use dashmap::DashMap;
 use sqlx::SqlitePool;
@@ -8,6 +9,50 @@ use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
 use crate::models::{VoicePeer, WsServerMessage};
+
+/// Simple per-IP rate limiter
+pub struct RateLimiter {
+    /// Maps IP → (request count, window start)
+    limits: DashMap<String, (u32, Instant)>,
+    max_requests: u32,
+    window_secs: u64,
+}
+
+impl RateLimiter {
+    pub fn new(max_requests: u32, window_secs: u64) -> Self {
+        Self {
+            limits: DashMap::new(),
+            max_requests,
+            window_secs,
+        }
+    }
+
+    /// Returns true if the request is allowed, false if rate-limited.
+    pub fn check(&self, ip: &str) -> bool {
+        let now = Instant::now();
+        let mut entry = self.limits.entry(ip.to_string()).or_insert((0, now));
+        let (count, window_start) = entry.value_mut();
+        if now.duration_since(*window_start).as_secs() >= self.window_secs {
+            // Reset window
+            *count = 1;
+            *window_start = now;
+            true
+        } else if *count < self.max_requests {
+            *count += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Periodically clean up old entries (call from a background task)
+    pub fn cleanup(&self) {
+        let now = Instant::now();
+        self.limits.retain(|_, (_, start)| {
+            now.duration_since(*start).as_secs() < self.window_secs * 2
+        });
+    }
+}
 
 /// Shared application state
 #[derive(Clone)]
@@ -29,6 +74,8 @@ pub struct AppState {
     pub external_port: u16,
     /// One-time setup key for first admin claim (None = already claimed)
     pub setup_key: Arc<Mutex<Option<String>>>,
+    /// Rate limiter for auth endpoints (login/register)
+    pub auth_rate_limiter: Arc<RateLimiter>,
 }
 
 impl AppState {
@@ -45,6 +92,7 @@ impl AppState {
             external_host,
             external_port,
             setup_key: Arc::new(Mutex::new(None)),
+            auth_rate_limiter: Arc::new(RateLimiter::new(10, 60)), // 10 req/min per IP
         }
     }
 
@@ -161,5 +209,10 @@ impl AppState {
             all.extend(entry.value().clone());
         }
         all
+    }
+
+    /// Remove broadcast channels that have no active subscribers (WARN-3: prevent memory leak)
+    pub fn cleanup_empty_channels(&self) {
+        self.channels.retain(|_, tx| tx.receiver_count() > 0);
     }
 }

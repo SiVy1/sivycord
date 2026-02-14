@@ -49,7 +49,6 @@ interface AppState {
   voiceChannelId: string | null;
   voiceMembers: VoicePeer[];
   screenShares: Map<string, MediaStream>;
-  talkingUsers: Set<string>; // Who is currently talking
   isMuted: boolean;
   isDeafened: boolean;
   setMuted: (v: boolean) => void;
@@ -70,7 +69,6 @@ interface AppState {
   removeVoiceMember: (userId: string) => void;
   addScreenShare: (userId: string, stream: MediaStream) => void;
   removeScreenShare: (userId: string) => void;
-  setTalking: (userId: string, talking: boolean) => void;
   updateVoiceSettings: (settings: Partial<AppState["voiceSettings"]>) => void;
   updateSoundSettings: (settings: Partial<AppState["soundSettings"]>) => void;
   updateServerConfig: (serverId: string, config: Partial<ServerConfig>) => void;
@@ -140,7 +138,10 @@ export const useStore = create<AppState>()(
       isLoadingMore: false,
       setMessages: (messages) => set({ messages }),
       addMessage: (message) =>
-        set((s) => ({ messages: [...s.messages, message] })),
+        set((s) => {
+          const msgs = [...s.messages, message];
+          return { messages: msgs.length > 500 ? msgs.slice(-500) : msgs };
+        }),
       prependMessages: (older) =>
         set((s) => {
           const existingIds = new Set(s.messages.map((m) => m.id));
@@ -153,7 +154,6 @@ export const useStore = create<AppState>()(
       // Voice
       voiceChannelId: null,
       voiceMembers: [],
-      screenShares: new Map(),
       isMuted: false,
       isDeafened: false,
       setMuted: (v) => set({ isMuted: v }),
@@ -187,7 +187,6 @@ export const useStore = create<AppState>()(
             [...s.screenShares].filter(([uid]) => uid !== userId),
           ),
         })),
-      talkingUsers: new Set(),
       voiceSettings: {
         mode: "activity",
         pttKey: "ControlLeft",
@@ -198,13 +197,6 @@ export const useStore = create<AppState>()(
         muteSound: null,
         deafenSound: null,
       },
-      setTalking: (userId, talking) =>
-        set((s) => {
-          const newSet = new Set(s.talkingUsers);
-          if (talking) newSet.add(userId);
-          else newSet.delete(userId);
-          return { talkingUsers: newSet };
-        }),
       updateVoiceSettings: (settings) =>
         set((s) => ({ voiceSettings: { ...s.voiceSettings, ...settings } })),
       updateSoundSettings: (settings) =>

@@ -278,8 +278,12 @@ async fn handle_socket(
                                     .unwrap_or(None)
                                     .unwrap_or_else(|| "Unknown Server".to_string());
 
-                                    let url = format!("http://{}:{}/api/federation/message", host, port);
-                                    let client = reqwest::Client::new();
+                                    let scheme = if port == 443 { "https" } else { "http" };
+                                    let url = format!("{}://{}:{}/api/federation/message", scheme, host, port);
+                                    let client = reqwest::Client::builder()
+                                        .timeout(std::time::Duration::from_secs(10))
+                                        .build()
+                                        .unwrap_or_else(|_| reqwest::Client::new());
                                     let _ = client.post(&url)
                                         .header("Authorization", format!("Federation {}", secret))
                                         .json(&serde_json::json!({

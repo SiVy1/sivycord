@@ -6,7 +6,7 @@ mod token;
 mod ws;
 
 use axum::{
-    extract::Request,
+    extract::{DefaultBodyLimit, Request},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{delete, get, post, put},
@@ -274,7 +274,8 @@ async fn main() {
         .route("/api/federation/peers/{peer_id}/activate", post(routes::federation::activate_peer))
         .route("/api/federation/channels", post(routes::federation::link_channel))
         .route("/api/federation/channels/{link_id}", delete(routes::federation::unlink_channel))
-        .route("/api/federation/message", post(routes::federation::receive_federated_message))
+        .route("/api/federation/message", post(routes::federation::receive_federated_message)
+            .layer(DefaultBodyLimit::max(65_536))) // 64KB limit for federation messages
         // Multi-Server (Guilds)
         .route("/api/servers", get(routes::servers::list_servers))
         .route("/api/servers", post(routes::servers::create_server))
@@ -292,7 +293,7 @@ async fn main() {
             validate_host(req, next, allowed_host.clone(), allowed_port)
         }))
         // State
-        .with_state(state);
+        .with_state(state.clone());
 
     let addr = format!("0.0.0.0:{port}");
 
@@ -306,6 +307,17 @@ async fn main() {
     println!("  ║  {:<45}║", &encoded_token);
     println!("  ╚══════════════════════════════════════════════╝");
     println!();
+
+    // WARN-3 + WARN-5: Background cleanup task for empty channels and rate limiter
+    let cleanup_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        loop {
+            interval.tick().await;
+            cleanup_state.cleanup_empty_channels();
+            cleanup_state.auth_rate_limiter.cleanup();
+        }
+    });
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

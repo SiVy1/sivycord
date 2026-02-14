@@ -1,12 +1,90 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { useStore } from "../store";
 import { VoiceStatusPanel } from "./VoiceStatusBar";
 import { useVoice } from "../hooks/useVoice";
+import { useIsTalking } from "../hooks/talkingStore";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AdminPanel } from "./AdminPanel";
 import { CreateChannelModal } from "./CreateChannelModal";
 import { P2PInviteModal } from "./P2PInviteModal";
 import { type Channel, type P2PChannel, getApiUrl } from "../types";
+
+interface VoiceMember {
+  user_id: string;
+  user_name: string;
+  is_muted: boolean;
+  is_deafened: boolean;
+}
+
+const VoiceMemberRow = memo(function VoiceMemberRow({
+  member,
+  hasScreenShare,
+}: {
+  member: VoiceMember;
+  hasScreenShare: boolean;
+}) {
+  const isTalking = useIsTalking(member.user_id);
+  return (
+    <div
+      className={`flex items-center gap-2 px-2 py-1 text-xs transition-all duration-200 rounded-lg group ${
+        isTalking
+          ? "bg-success/5 text-success font-medium"
+          : "text-text-secondary hover:bg-bg-hover/40"
+      }`}
+    >
+      <div className="relative shrink-0">
+        <div
+          className={`w-5 h-5 rounded-full bg-bg-surface flex items-center justify-center text-[8px] font-bold border ${
+            isTalking
+              ? "border-success shadow-[0_0_8px_rgba(16,185,129,0.3)]"
+              : "border-border"
+          }`}
+        >
+          {member.user_name[0].toUpperCase()}
+        </div>
+        {isTalking && (
+          <div className="absolute -inset-1 rounded-full border border-success/40 animate-ping opacity-20" />
+        )}
+      </div>
+      <span className="truncate flex-1">{member.user_name}</span>
+      <div className="flex items-center gap-1 shrink-0 px-0.5">
+        {hasScreenShare && (
+          <span className="text-[8px] font-bold bg-accent text-white px-1 rounded-[4px] leading-3 shadow-[0_0_8px_rgba(59,130,246,0.3)]">
+            LIVE
+          </span>
+        )}
+        {member.is_deafened ? (
+          <svg
+            className="w-3.5 h-3.5 text-danger opacity-80"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path d="M3 11a5 5 0 0 1 5-5h8a5 5 0 0 1 5 5v2a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5v-2Z" />
+            <path d="M12 6v12" />
+            <line x1="2" y1="2" x2="22" y2="22" />
+          </svg>
+        ) : member.is_muted ? (
+          <svg
+            className="w-3.5 h-3.5 text-danger opacity-80"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path d="m12 8-4 4 4 4" />
+            <path d="M12 2v20" />
+            <path d="M19 12h.01" />
+            <path d="M19 6h.01" />
+            <path d="M19 18h.01" />
+            <line x1="2" y1="2" x2="22" y2="22" />
+          </svg>
+        ) : null}
+      </div>
+    </div>
+  );
+});
 
 export function ChannelSidebar() {
   const activeServerId = useStore((s) => s.activeServerId);
@@ -18,7 +96,7 @@ export function ChannelSidebar() {
   const voiceChannelId = useStore((s) => s.voiceChannelId);
   const voiceMembers = useStore((s) => s.voiceMembers);
   const currentUser = useStore((s) => s.currentUser);
-  const talkingUsers = useStore((s) => s.talkingUsers);
+  const screenShares = useStore((s) => s.screenShares);
   const displayName = useStore((s) => s.displayName);
   const { joinVoice, leaveVoice } = useVoice();
   const [showCreate, setShowCreate] = useState(false);
@@ -268,74 +346,13 @@ export function ChannelSidebar() {
 
                   {voiceMembersInThisChannel.length > 0 && (
                     <div className="ml-10 mt-1 mb-2 space-y-1">
-                      {voiceMembersInThisChannel.map((m) => {
-                        const isTalking = talkingUsers.has(m.user_id);
-                        return (
-                          <div
-                            key={m.user_id}
-                            className={`flex items-center gap-2 px-2 py-1 text-xs transition-all duration-200 rounded-lg group ${
-                              isTalking
-                                ? "bg-success/5 text-success font-medium"
-                                : "text-text-secondary hover:bg-bg-hover/40"
-                            }`}
-                          >
-                            <div className="relative shrink-0">
-                              <div
-                                className={`w-5 h-5 rounded-full bg-bg-surface flex items-center justify-center text-[8px] font-bold border ${
-                                  isTalking
-                                    ? "border-success shadow-[0_0_8px_rgba(16,185,129,0.3)]"
-                                    : "border-border"
-                                }`}
-                              >
-                                {m.user_name[0].toUpperCase()}
-                              </div>
-                              {isTalking && (
-                                <div className="absolute -inset-1 rounded-full border border-success/40 animate-ping opacity-20" />
-                              )}
-                            </div>
-                            <span className="truncate flex-1">
-                              {m.user_name}
-                            </span>
-                            <div className="flex items-center gap-1 shrink-0 px-0.5">
-                              {useStore
-                                .getState()
-                                .screenShares.has(m.user_id) && (
-                                <span className="text-[8px] font-bold bg-accent text-white px-1 rounded-[4px] leading-3 shadow-[0_0_8px_rgba(59,130,246,0.3)]">
-                                  LIVE
-                                </span>
-                              )}
-                              {m.is_deafened ? (
-                                <svg
-                                  className="w-3.5 h-3.5 text-danger opacity-80"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                  strokeWidth={2.5}
-                                >
-                                  <path d="M3 11a5 5 0 0 1 5-5h8a5 5 0 0 1 5 5v2a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5v-2Z" />
-                                  <path d="M12 6v12" />
-                                  <line x1="2" y1="2" x2="22" y2="22" />
-                                </svg>
-                              ) : m.is_muted ? (
-                                <svg
-                                  className="w-3.5 h-3.5 text-danger opacity-80"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                  strokeWidth={2.5}
-                                >
-                                  <path d="m12 8-4 4 4 4" />
-                                  <path d="M12 2v20" />
-                                  <path d="M19 12h.01" />
-                                  <path d="M19 6h.01" />
-                                  <path d="M19 18h.01" />
-                                  <line x1="2" y1="2" x2="22" y2="22" />
-                                </svg>
-                              ) : null}
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {voiceMembersInThisChannel.map((m) => (
+                        <VoiceMemberRow
+                          key={m.user_id}
+                          member={m}
+                          hasScreenShare={screenShares.has(m.user_id)}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>
