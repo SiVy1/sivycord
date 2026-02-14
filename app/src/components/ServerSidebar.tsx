@@ -11,6 +11,23 @@ export function ServerSidebar() {
   return (
     <>
       <div className="w-[72px] min-w-[72px] bg-bg-secondary flex flex-col items-center py-3 gap-2 border-r border-border overflow-y-auto">
+        {/* Home button — back to server grid */}
+        <button
+          onClick={() => setActiveServer(null)}
+          title="Back to servers"
+          className={`
+            w-12 h-12 rounded-[18px] flex items-center justify-center
+            transition-all duration-300 ease-out cursor-pointer
+            bg-bg-surface text-text-secondary hover:bg-accent hover:text-white hover:rounded-[12px] hover:shadow-lg hover:shadow-accent/20
+          `}
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
+          </svg>
+        </button>
+
+        <div className="w-8 h-px bg-border my-1" />
+
         {/* Server list */}
         {servers.map((server) => (
           <button

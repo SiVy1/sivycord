@@ -8,14 +8,12 @@ interface AuthScreenProps {
   serverHost: string;
   serverPort: number;
   onAuth: (user: AuthUser, token: string) => void;
-  onSkip?: () => void;
 }
 
 export function AuthScreen({
   serverHost,
   serverPort,
   onAuth,
-  onSkip,
 }: AuthScreenProps) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [username, setUsername] = useState("");
@@ -80,9 +78,8 @@ export function AuthScreen({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="w-full max-w-sm mx-4 bg-bg-secondary border border-border rounded-2xl p-6">
-        <div className="flex justify-between items-start mb-6">
-          <div className="w-10 h-10" /> {/* Spacer */}
-          <div className="text-center flex-1">
+        <div className="mb-6">
+          <div className="text-center">
             <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-3">
               <svg
                 className="w-7 h-7 text-accent"
@@ -105,26 +102,7 @@ export function AuthScreen({
               {serverHost}:{serverPort}
             </p>
           </div>
-          {onSkip && (
-            <button
-              onClick={onSkip}
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-            >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          )}
+
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -227,16 +205,7 @@ export function AuthScreen({
           </button>
         </div>
 
-        {onSkip && (
-          <div className="mt-2 text-center">
-            <button
-              onClick={onSkip}
-              className="text-xs text-text-muted hover:text-text-secondary transition-colors cursor-pointer"
-            >
-              Continue as Guest (read-only)
-            </button>
-          </div>
-        )}
+
       </div>
     </div>
   );

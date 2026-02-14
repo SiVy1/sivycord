@@ -125,12 +125,6 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
     onClose();
   };
 
-  const handleGuestSkip = () => {
-    if (!pendingServer) return;
-    setActiveServer(pendingServer.serverId);
-    onClose();
-  };
-
   const handleTokenJoin = async () => {
     const trimmed = token.trim();
     if (!trimmed) return;
@@ -211,7 +205,6 @@ export function AddServerModal({ onClose }: { onClose: () => void }) {
         serverHost={pendingServer.host}
         serverPort={pendingServer.port}
         onAuth={handleAuth}
-        onSkip={handleGuestSkip}
       />
     );
   }

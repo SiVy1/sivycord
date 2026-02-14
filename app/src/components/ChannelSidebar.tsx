@@ -384,7 +384,7 @@ export function ChannelSidebar() {
             {currentUser?.display_name || displayName}
           </span>
           <span className="text-[10px] text-text-muted truncate">
-            {currentUser ? `@${currentUser.username}` : "Guest User"}
+            {currentUser ? `@${currentUser.username}` : ""}
           </span>
         </div>{" "}
         <button

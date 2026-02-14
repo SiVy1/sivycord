@@ -218,19 +218,7 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                   </p>
                 </div>
               </div>
-            ) : (
-              <div className="bg-bg-primary border border-border/50 rounded-2xl p-8 text-center shadow-inner">
-                <p className="text-sm text-text-secondary mb-6 font-medium">
-                  You are currently browsing as a guest
-                </p>
-                <button
-                  onClick={() => setShowAuth(true)}
-                  className="px-6 py-2.5 bg-accent hover:bg-accent-hover text-white text-xs font-bold rounded-xl transition-all shadow-lg shadow-accent/20 active:scale-95"
-                >
-                  Sign In / Register
-                </button>
-              </div>
-            )}
+            ) : null}
           </section>
           {/* Voice Section */}
           <section>
@@ -312,7 +300,6 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
               updateServerAuth(activeServer.id, token, user.id);
               setShowAuth(false);
             }}
-            onSkip={() => setShowAuth(false)}
           />
         )}
     </div>

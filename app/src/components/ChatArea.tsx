@@ -726,11 +726,7 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                       : "Offline"}
                 </span>
               </div>
-              {!isAuthenticated && (
-                <span className="text-[10px] font-bold text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20 uppercase tracking-widest">
-                  Guest
-                </span>
-              )}
+
             </>
           )}
           {/* Members toggle button */}
