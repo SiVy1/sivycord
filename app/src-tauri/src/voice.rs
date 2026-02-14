@@ -209,7 +209,9 @@ pub async fn start_voice(
                 }
             };
         let mut denoiser = nnnoiseless::DenoiseState::new();
-        let mut frame_buf = Vec::<f32>::with_capacity(960);
+        // nnnoiseless FRAME_SIZE = 480, Opus frame = 960 (20ms at 48kHz)
+        let mut denoise_buf = Vec::<f32>::with_capacity(480);
+        let mut opus_buf = Vec::<f32>::with_capacity(960);
         // Resample from device rate to 48kHz mono for Opus
         let step = 48000.0_f64 / dev_rate as f64;
         let mut resample_frac = 0.0f64;
@@ -229,17 +231,23 @@ pub async fn start_voice(
                     // Resample to 48kHz
                     resample_frac += step;
                     while resample_frac >= 1.0 {
-                        frame_buf.push(mono);
+                        denoise_buf.push(mono);
                         resample_frac -= 1.0;
 
-                        if frame_buf.len() == 960 {
-                            let mut denoised = vec![0.0f32; 960];
-                            denoiser.process_frame(&mut denoised, &frame_buf);
-                            frame_buf.clear();
+                        // Denoise in 480-sample chunks (nnnoiseless FRAME_SIZE)
+                        if denoise_buf.len() == 480 {
+                            let mut denoised = vec![0.0f32; 480];
+                            denoiser.process_frame(&mut denoised, &denoise_buf);
+                            denoise_buf.clear();
+                            opus_buf.extend_from_slice(&denoised);
 
-                            let mut compressed = vec![0u8; 1275];
-                            if let Ok(len) = encoder.encode_float(&denoised, &mut compressed) {
-                                let _ = audio_tx.send(compressed[..len].to_vec());
+                            // Encode when we have 960 samples (20ms Opus frame)
+                            if opus_buf.len() >= 960 {
+                                let mut compressed = vec![0u8; 1275];
+                                if let Ok(len) = encoder.encode_float(&opus_buf[..960], &mut compressed) {
+                                    let _ = audio_tx.send(compressed[..len].to_vec());
+                                }
+                                opus_buf.drain(..960);
                             }
                         }
                     }

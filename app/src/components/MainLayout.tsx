@@ -28,13 +28,35 @@ export function MainLayout() {
       const { listen } = await import("@tauri-apps/api/event");
       unlisten = await listen<ChatEntry>("iroh-entry", (event) => {
         const payload = event.payload;
-        // Map Iroh entry to Message type
+        // Only show actual chat messages, filter out metadata entries
+        const key = payload.key;
+        if (
+          key.startsWith("meta/") ||
+          key.startsWith("identity/") ||
+          key.startsWith("roles/") ||
+          key.startsWith("voice/") ||
+          (key.startsWith("channels/") && key.includes("/meta"))
+        ) {
+          return; // Skip non-message entries
+        }
+
+        // Try to parse P2PMessage JSON for proper author/content
+        let content = payload.content;
+        let userName = payload.author.substring(0, 8);
+        let channelId = "p2p";
+        try {
+          const parsed = JSON.parse(payload.content);
+          if (parsed.content) content = parsed.content;
+          if (parsed.author) userName = parsed.author;
+          if (parsed.channel_id) channelId = parsed.channel_id;
+        } catch { /* raw string fallback */ }
+
         addMessage({
           id: payload.key,
-          channelId: "p2p", // For now, p2p has one flat channel
+          channelId,
           userId: payload.author,
-          userName: payload.author.substring(0, 8),
-          content: payload.content,
+          userName,
+          content,
           createdAt: new Date().toISOString(),
         });
       });
