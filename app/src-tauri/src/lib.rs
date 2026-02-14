@@ -40,12 +40,23 @@ pub fn run() {
       let rt_clone = rt.clone();
 
       let result: Result<_, String> = rt.block_on(async {
+        let profile = std::env::var("SIVY_PROFILE").unwrap_or_default();
         let app_data_dir = app.path().app_local_data_dir().unwrap();
-        let iroh_dir = app_data_dir.join("iroh");
+        let profile_data_dir = if profile.is_empty() {
+          app_data_dir
+        } else {
+          app_data_dir.join("profiles").join(&profile)
+        };
+        let iroh_dir = profile_data_dir.join("iroh");
         std::fs::create_dir_all(&iroh_dir).unwrap();
 
         // Load or generate persistent secret key via system keychain
-        let ek_entry = keyring::Entry::new("sivyspeak", "default-identity").unwrap();
+        let keyring_account = if profile.is_empty() {
+          "default-identity".to_string()
+        } else {
+          format!("default-identity-{}", profile)
+        };
+        let ek_entry = keyring::Entry::new("sivyspeak", &keyring_account).unwrap();
         let secret_key = match ek_entry.get_password() {
             Ok(pw) => {
                 let bytes = hex::decode(pw).expect("invalid secret key in keychain");
@@ -69,6 +80,9 @@ pub fn run() {
             .map_err(|e| format!("Failed to spawn iroh node: {}", e))?;
 
         log::info!("[P2P] iroh node spawned, node_id={}", node.node_id());
+        if !profile.is_empty() {
+          log::info!("[P2P] profile={}", profile);
+        }
 
         // Use the default author (creates one if it doesn't exist)
         let author_id = node
