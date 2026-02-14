@@ -1,6 +1,12 @@
 import { useEffect, useState, useCallback, useRef, memo } from "react";
 import { useStore } from "../store";
 import { type MemberInfo, getApiUrl } from "../types";
+import type { P2PIdentity } from "../types/p2p-identity";
+
+interface PresenceInfo {
+  node_id: string;
+  timestamp: number;
+}
 
 interface MemberListPanelProps {
   visible: boolean;
@@ -23,7 +29,8 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
 
   const activeServer = servers.find((s) => s.id === activeServerId);
 
-  const fetchMembers = useCallback(async () => {
+  // Legacy server member fetching
+  const fetchLegacyMembers = useCallback(async () => {
     if (!activeServer || activeServer.type !== "legacy") return;
     const { host, port, authToken } = activeServer.config;
     if (!host || !port || !authToken) return;
@@ -53,6 +60,55 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
       setLoading(false);
     }
   }, [activeServer]);
+
+  // P2P member fetching via Iroh identities + presence
+  const fetchP2PMembers = useCallback(async () => {
+    if (!activeServer || activeServer.type !== "p2p") return;
+    const docId = activeServer.config.p2p?.namespaceId;
+    if (!docId) return;
+
+    setLoading(true);
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const [identities, presences] = await Promise.all([
+        invoke<P2PIdentity[]>("list_identities", { docId }),
+        invoke<PresenceInfo[]>("list_presences", { docId }),
+      ]);
+
+      const onlineSet = new Set(presences.map((p) => p.node_id));
+
+      const data: MemberInfo[] = identities.map((id) => ({
+        user_id: id.node_id,
+        username: id.node_id.substring(0, 8),
+        display_name: id.display_name,
+        avatar_url: null,
+        is_online: onlineSet.has(id.node_id),
+        is_bot: false,
+        roles: [],
+      }));
+
+      // Sort: online first
+      data.sort((a, b) => (a.is_online === b.is_online ? 0 : a.is_online ? -1 : 1));
+
+      if (!membersEqual(membersRef.current, data)) {
+        membersRef.current = data;
+        setMembers(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch P2P members:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeServer]);
+
+  const fetchMembers = useCallback(async () => {
+    if (!activeServer) return;
+    if (activeServer.type === "p2p") {
+      await fetchP2PMembers();
+    } else {
+      await fetchLegacyMembers();
+    }
+  }, [activeServer, fetchP2PMembers, fetchLegacyMembers]);
 
   useEffect(() => {
     if (!visible) return;

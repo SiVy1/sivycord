@@ -12,6 +12,8 @@ import {
   startVAD, stopVAD, createPeerConnection, cleanupAll, negotiateWith,
 } from "./voiceHelpers";
 
+let p2pVoicePollInterval: ReturnType<typeof setInterval> | null = null;
+
 // ─── The hook ───
 export function useVoice() {
   const voiceChannelId = useStore((s) => s.voiceChannelId);
@@ -111,8 +113,38 @@ export function useVoice() {
       if (activeServer.type === "p2p") {
         const docId = activeServer.config.p2p?.namespaceId;
         if (docId) {
+          const { invoke } = await import("@tauri-apps/api/core");
+          // Register presence in the doc so others can see us
+          await invoke("moq_join_voice", { docId, channelId });
           await useStore.getState().startP2PVoice(docId);
           playVoiceSound("join");
+
+          // Poll voice peers periodically
+          const pollPeers = async () => {
+            try {
+              const peers = await invoke<{ node_id: string; channel_id: string; joined_at: string }[]>(
+                "moq_list_voice_peers", { docId, channelId }
+              );
+              const identities = await invoke<{ node_id: string; display_name: string }[]>(
+                "list_identities", { docId }
+              );
+              const nameMap = new Map(identities.map((i) => [i.node_id, i.display_name]));
+              const members = peers.map((p) => ({
+                user_id: p.node_id,
+                user_name: nameMap.get(p.node_id) || p.node_id.substring(0, 8),
+                channel_id: p.channel_id,
+                is_muted: false,
+                is_deafened: false,
+              }));
+              setVoiceMembers(members);
+            } catch (err) {
+              console.warn("Failed to poll P2P voice peers:", err);
+            }
+          };
+          pollPeers();
+          const interval = setInterval(pollPeers, 5000);
+          // Store interval for cleanup — use a module-level variable
+          p2pVoicePollInterval = interval;
         }
         return;
       }
@@ -430,6 +462,18 @@ export function useVoice() {
     }
 
     if (activeServer?.type === "p2p") {
+      // Clear P2P voice poll interval
+      if (p2pVoicePollInterval) {
+        clearInterval(p2pVoicePollInterval);
+        p2pVoicePollInterval = null;
+      }
+      // Remove voice presence from the doc
+      const docId = activeServer.config.p2p?.namespaceId;
+      if (docId && currentChannelId) {
+        import("@tauri-apps/api/core").then(({ invoke }) => {
+          invoke("moq_leave_voice", { docId, channelId: currentChannelId }).catch(() => {});
+        });
+      }
       useStore.getState().stopP2PVoice();
     }
 

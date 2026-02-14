@@ -155,6 +155,8 @@ pub fn run() {
         identity::get_identity,
         identity::list_identities,
         identity::set_avatar_blob,
+        identity::set_presence,
+        identity::list_presences,
         // MoQ Voice
         moq::moq_join_voice,
         moq::moq_leave_voice,

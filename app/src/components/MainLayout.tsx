@@ -104,6 +104,27 @@ export function MainLayout() {
     fetchProfile();
   }, [activeServerId, activeServer?.config.authToken, setCurrentUser]);
 
+  // P2P presence heartbeat — write presence/{nodeId} every 30s
+  useEffect(() => {
+    if (!activeServer || activeServer.type !== "p2p") return;
+    const docId = activeServer.config.p2p?.namespaceId;
+    if (!docId) return;
+
+    const sendHeartbeat = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("set_presence", { docId });
+      } catch (err) {
+        console.warn("Presence heartbeat failed:", err);
+      }
+    };
+
+    // Send immediately, then every 30s
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 30_000);
+    return () => clearInterval(interval);
+  }, [activeServerId, activeServer?.type]);
+
   return (
     <div className="h-full flex">
       {/* Server icons sidebar */}

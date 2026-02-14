@@ -216,9 +216,79 @@ pub async fn set_avatar_blob(
     }).await
 }
 
-fn iso_now() -> String {
-    let dur = std::time::SystemTime::now()
+// ── Presence ───────────────────────────────────────────────────────────
+// Key format: presence/{node_id}  →  JSON { node_id, timestamp }
+// Heartbeat every ~30s; anyone with timestamp within last 90s is "online".
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct PresenceInfo {
+    pub node_id: String,
+    pub timestamp: u64, // unix seconds
+}
+
+#[tauri::command]
+pub async fn set_presence(
+    state: tauri::State<'_, IrohState>,
+    doc_id: String,
+) -> Result<(), String> {
+    let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    state.on_rt(move |node, author_id| async move {
+        let client = node.client();
+        let doc = client.docs().open(ns).await.map_err(|e| e.to_string())?
+            .ok_or_else(|| "Document not found".to_string())?;
+        let node_id = node.node_id().to_string();
+
+        let info = PresenceInfo {
+            node_id: node_id.clone(),
+            timestamp: now_secs(),
+        };
+
+        let key = format!("presence/{}", node_id);
+        let json = serde_json::to_string(&info).map_err(|e| e.to_string())?;
+        doc.set_bytes(author_id, key.as_bytes().to_vec(), json.as_bytes().to_vec())
+            .await.map_err(|e| e.to_string())?;
+        Ok(())
+    }).await
+}
+
+#[tauri::command]
+pub async fn list_presences(
+    state: tauri::State<'_, IrohState>,
+    doc_id: String,
+) -> Result<Vec<PresenceInfo>, String> {
+    let ns = iroh_docs::NamespaceId::from_str(&doc_id).map_err(|e| e.to_string())?;
+    state.on_rt(move |node, _author_id| async move {
+        let client = node.client();
+        let doc = client.docs().open(ns).await.map_err(|e| e.to_string())?
+            .ok_or_else(|| "Document not found".to_string())?;
+
+        use futures_util::StreamExt;
+        let mut entries = doc
+            .get_many(iroh_docs::store::Query::key_prefix(b"presence/"))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let cutoff = now_secs().saturating_sub(90); // 90s TTL
+        let mut presences = Vec::new();
+        while let Some(Ok(entry)) = entries.next().await {
+            let content = entry.content_bytes(client).await.map_err(|e| e.to_string())?;
+            if let Ok(info) = serde_json::from_slice::<PresenceInfo>(&content) {
+                if info.timestamp >= cutoff {
+                    presences.push(info);
+                }
+            }
+        }
+        Ok(presences)
+    }).await
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap();
-    format!("{}Z", dur.as_secs())
+        .unwrap()
+        .as_secs()
+}
+
+fn iso_now() -> String {
+    format!("{}Z", now_secs())
 }
