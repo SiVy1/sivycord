@@ -327,20 +327,6 @@ Contributions are welcome! Whether it's bug reports, feature requests, or pull r
 
 ---
 
-## 📊 Performance Benchmarks
-
-| Metryka | SivySpeak | Discord | TeamSpeak |
-|---------|-----------|---------|-----------|
-| **Zużycie RAM** (idle) | ~70 MB | ~400 MB | ~120 MB |
-| **CPU Usage** (1 voice channel) | 2-4% | 5-8% | 3-5% |
-| **Voice Latency** (P2P direct) | 20-35 ms | 40-60 ms | 25-40 ms |
-| **Startup Time** | 1.2s | 4-6s | 2-3s |
-| **Binary Size** (Windows) | ~15 MB | ~90 MB | ~50 MB |
-
-*Testy na: Intel i5-12600K, 32GB RAM, Windows 11*
-
----
-
 ## 🔐 Security
 
 - **Vulnerability reporting**: Proszę zgłaszać przez GitHub Security Advisories (nie publicznie issue)
