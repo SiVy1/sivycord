@@ -1,6 +1,9 @@
 use axum::{extract::State, http::{HeaderMap, StatusCode}, Json};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, QueryOrder, QuerySelect, Set};
+use sea_orm::sea_query::{Expr, Func};
 use uuid::Uuid;
 
+use crate::entities::channel;
 use crate::models::{Channel, CreateChannelRequest};
 use crate::routes::auth;
 use crate::routes::servers::extract_server_id;
@@ -16,16 +19,15 @@ pub async fn list_channels(
     let _claims = auth::extract_claims(&state.jwt_secret, &headers)?;
     let server_id = extract_server_id(&headers);
 
-    let channels = sqlx::query_as::<_, Channel>(
-        "SELECT * FROM channels WHERE server_id = ? ORDER BY position ASC",
-    )
-    .bind(&server_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to list channels: {e}");
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-    })?;
+    let channels = channel::Entity::find()
+        .filter(channel::Column::ServerId.eq(&server_id))
+        .order_by_asc(channel::Column::Position)
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list channels: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+        })?;
 
     Ok(Json(channels))
 }
@@ -65,18 +67,20 @@ pub async fn create_channel(
         .take(MAX_DESCRIPTION)
         .collect::<String>();
 
-    // Check for duplicate name within same server
-    let existing: Option<(String,)> =
-        sqlx::query_as("SELECT id FROM channels WHERE LOWER(name) = LOWER(?) AND channel_type = ? AND server_id = ?")
-            .bind(&name)
-            .bind(&channel_type)
-            .bind(&server_id)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to check duplicate channel: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-            })?;
+    // Check for duplicate name within same server (case-insensitive)
+    let existing = channel::Entity::find()
+        .filter(
+            Expr::expr(Func::lower(Expr::col(channel::Column::Name)))
+                .eq(name.to_lowercase())
+        )
+        .filter(channel::Column::ChannelType.eq(&channel_type))
+        .filter(channel::Column::ServerId.eq(&server_id))
+        .one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to check duplicate channel: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+        })?;
 
     if existing.is_some() {
         return Err((StatusCode::CONFLICT, "Channel already exists".into()));
@@ -84,41 +88,51 @@ pub async fn create_channel(
 
     let id = Uuid::new_v4().to_string();
 
-    let max_pos: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(position) FROM channels WHERE server_id = ?")
-            .bind(&server_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to get max position: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
-            })?;
-    let position = max_pos.unwrap_or(0) + 1;
+    let max_pos: Option<i64> = channel::Entity::find()
+        .filter(channel::Column::ServerId.eq(&server_id))
+        .select_only()
+        .column_as(Expr::col(channel::Column::Position).max(), "max_pos")
+        .into_tuple::<Option<i64>>()
+        .one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get max position: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+        })?
+        .flatten();
 
-    sqlx::query("INSERT INTO channels (id, name, description, position, channel_type, server_id) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(&id)
-        .bind(&name)
-        .bind(&description)
-        .bind(position)
-        .bind(&channel_type)
-        .bind(&server_id)
-        .execute(&state.db)
+    let position = max_pos.unwrap_or(0) + 1;
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let new_channel = channel::ActiveModel {
+        id: Set(id.clone()),
+        name: Set(name.clone()),
+        description: Set(description.clone()),
+        position: Set(position),
+        created_at: Set(now.clone()),
+        channel_type: Set(channel_type.clone()),
+        encrypted: Set(false),
+        server_id: Set(server_id.clone()),
+    };
+
+    channel::Entity::insert(new_channel)
+        .exec(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create channel: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
         })?;
 
-    let channel = Channel {
+    let ch = Channel {
         id,
         name,
         description,
         position,
-        created_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        created_at: now,
         channel_type,
         encrypted: false,
         server_id,
     };
 
-    Ok((StatusCode::CREATED, Json(channel)))
+    Ok((StatusCode::CREATED, Json(ch)))
 }

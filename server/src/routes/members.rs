@@ -1,4 +1,6 @@
 use axum::{extract::{State, Path}, Json, http::{HeaderMap, StatusCode}};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, QueryOrder, Set, ActiveModelTrait};
+use crate::entities::{ban, user, server_member};
 use crate::models::{Ban, BanRequest, Permissions};
 use crate::state::AppState;
 use crate::routes::audit_logs::create_audit_log;
@@ -17,9 +19,10 @@ pub async fn list_bans(
 
     let server_id = extract_server_id(&headers);
 
-    let bans: Vec<Ban> = sqlx::query_as("SELECT * FROM bans WHERE server_id = ? ORDER BY created_at DESC")
-        .bind(&server_id)
-        .fetch_all(&state.db)
+    let bans: Vec<Ban> = ban::Entity::find()
+        .filter(ban::Column::ServerId.eq(&server_id))
+        .order_by_desc(ban::Column::CreatedAt)
+        .all(&state.db)
         .await
         .unwrap_or_default();
 
@@ -39,29 +42,36 @@ pub async fn ban_member(
 
     let server_id = extract_server_id(&headers);
 
-    let user_name: String = sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
-        .bind(&user_id)
-        .fetch_one(&state.db)
+    let user_name = user::Entity::find_by_id(&user_id)
+        .one(&state.db)
         .await
-        .unwrap_or_else(|_| "Unknown User".to_string());
+        .ok()
+        .flatten()
+        .map(|u| u.username)
+        .unwrap_or_else(|| "Unknown User".to_string());
 
-    sqlx::query("INSERT OR REPLACE INTO bans (user_id, user_name, reason, banned_by, server_id) VALUES (?, ?, ?, ?, ?)")
-        .bind(&user_id)
-        .bind(&user_name)
-        .bind(&payload.reason)
-        .bind(&claims.username)
-        .bind(&server_id)
-        .execute(&state.db)
-        .await
-        .ok();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Upsert ban
+    let new_ban = ban::ActiveModel {
+        user_id: Set(user_id.clone()),
+        user_name: Set(user_name.clone()),
+        reason: Set(payload.reason.clone()),
+        banned_by: Set(claims.username.clone()),
+        created_at: Set(now),
+        server_id: Set(server_id.clone()),
+    };
+
+    // Delete existing ban then insert (cross-DB upsert)
+    let _ = ban::Entity::delete_by_id(&user_id).exec(&state.db).await;
+    let _ = ban::Entity::insert(new_ban).exec(&state.db).await;
 
     // Remove from server members
-    sqlx::query("DELETE FROM server_members WHERE server_id = ? AND user_id = ?")
-        .bind(&server_id)
-        .bind(&user_id)
-        .execute(&state.db)
-        .await
-        .ok();
+    let _ = server_member::Entity::delete_many()
+        .filter(server_member::Column::ServerId.eq(&server_id))
+        .filter(server_member::Column::UserId.eq(&user_id))
+        .exec(&state.db)
+        .await;
 
     create_audit_log(
         &state.db,
@@ -86,17 +96,15 @@ pub async fn unban_member(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let user_name: String = sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
-        .bind(&user_id)
-        .fetch_one(&state.db)
+    let user_name = user::Entity::find_by_id(&user_id)
+        .one(&state.db)
         .await
-        .unwrap_or_else(|_| "Unknown User".to_string());
+        .ok()
+        .flatten()
+        .map(|u| u.username)
+        .unwrap_or_else(|| "Unknown User".to_string());
 
-    sqlx::query("DELETE FROM bans WHERE user_id = ?")
-        .bind(&user_id)
-        .execute(&state.db)
-        .await
-        .ok();
+    let _ = ban::Entity::delete_by_id(&user_id).exec(&state.db).await;
 
     create_audit_log(
         &state.db,
@@ -121,11 +129,13 @@ pub async fn kick_member(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let user_name: String = sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
-        .bind(&user_id)
-        .fetch_one(&state.db)
+    let user_name = user::Entity::find_by_id(&user_id)
+        .one(&state.db)
         .await
-        .unwrap_or_else(|_| "Unknown User".to_string());
+        .ok()
+        .flatten()
+        .map(|u| u.username)
+        .unwrap_or_else(|| "Unknown User".to_string());
 
     create_audit_log(
         &state.db,

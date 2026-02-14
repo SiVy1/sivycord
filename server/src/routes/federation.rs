@@ -4,9 +4,11 @@ use axum::{
     Json,
 };
 use rand::Rng;
+use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::entities::{channel, federated_channel, federation_peer, message};
 use crate::models::{FederatedChannel, FederationPeer, Permissions, WsServerMessage};
 use crate::routes::auth;
 use crate::routes::roles::user_has_permission;
@@ -82,19 +84,22 @@ pub async fn get_federation_status(
         return Err((StatusCode::FORBIDDEN, "MANAGE_SERVER required".into()));
     }
 
-    let peers = sqlx::query_as::<_, FederationPeer>(
-        "SELECT id, name, host, port, '' as shared_secret, status, direction, created_at, last_seen FROM federation_peers ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let mut peers: Vec<FederationPeer> = federation_peer::Entity::find()
+        .order_by_desc(federation_peer::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-    let linked_channels = sqlx::query_as::<_, FederatedChannel>(
-        "SELECT id, local_channel_id, peer_id, remote_channel_id, created_at FROM federated_channels ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    // Mask shared secrets
+    for p in &mut peers {
+        p.shared_secret = String::new();
+    }
+
+    let linked_channels: Vec<FederatedChannel> = federated_channel::Entity::find()
+        .order_by_desc(federated_channel::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     Ok(Json(FederationStatus {
         peers,
@@ -122,14 +127,12 @@ pub async fn add_peer(
     }
 
     // Check duplicate
-    let exists: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM federation_peers WHERE host = ? AND port = ?",
-    )
-    .bind(&req.host)
-    .bind(req.port as i64)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let exists = federation_peer::Entity::find()
+        .filter(federation_peer::Column::Host.eq(&req.host))
+        .filter(federation_peer::Column::Port.eq(req.port as i64))
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     if exists.is_some() {
         return Err((StatusCode::CONFLICT, "Peer already exists".into()));
@@ -139,18 +142,22 @@ pub async fn add_peer(
     let shared_secret = generate_shared_secret();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT INTO federation_peers (id, name, host, port, shared_secret, status, direction, created_at) VALUES (?, ?, ?, ?, ?, 'pending', 'outgoing', ?)",
-    )
-    .bind(&peer_id)
-    .bind(&name)
-    .bind(&req.host)
-    .bind(req.port as i64)
-    .bind(&shared_secret)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let new_peer = federation_peer::ActiveModel {
+        id: Set(peer_id.clone()),
+        name: Set(name.clone()),
+        host: Set(req.host.clone()),
+        port: Set(req.port as i64),
+        shared_secret: Set(shared_secret.clone()),
+        status: Set("pending".to_string()),
+        direction: Set("outgoing".to_string()),
+        created_at: Set(now.clone()),
+        last_seen: Set(None),
+    };
+
+    federation_peer::Entity::insert(new_peer)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let peer = FederationPeer {
         id: peer_id,
@@ -187,18 +194,22 @@ pub async fn accept_peer(
     let peer_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT INTO federation_peers (id, name, host, port, shared_secret, status, direction, created_at) VALUES (?, ?, ?, ?, ?, 'active', 'incoming', ?)",
-    )
-    .bind(&peer_id)
-    .bind(&req.name)
-    .bind(&req.host)
-    .bind(req.port as i64)
-    .bind(&req.shared_secret)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let new_peer = federation_peer::ActiveModel {
+        id: Set(peer_id.clone()),
+        name: Set(req.name.clone()),
+        host: Set(req.host.clone()),
+        port: Set(req.port as i64),
+        shared_secret: Set(req.shared_secret.clone()),
+        status: Set("active".to_string()),
+        direction: Set("incoming".to_string()),
+        created_at: Set(now.clone()),
+        last_seen: Set(None),
+    };
+
+    federation_peer::Entity::insert(new_peer)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let peer = FederationPeer {
         id: peer_id,
@@ -230,15 +241,14 @@ pub async fn remove_peer(
     }
 
     // Delete linked channels first
-    sqlx::query("DELETE FROM federated_channels WHERE peer_id = ?")
-        .bind(&peer_id)
-        .execute(&state.db)
+    federated_channel::Entity::delete_many()
+        .filter(federated_channel::Column::PeerId.eq(&peer_id))
+        .exec(&state.db)
         .await
         .ok();
 
-    sqlx::query("DELETE FROM federation_peers WHERE id = ?")
-        .bind(&peer_id)
-        .execute(&state.db)
+    federation_peer::Entity::delete_by_id(&peer_id)
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -260,26 +270,20 @@ pub async fn link_channel(
     }
 
     // Verify peer exists
-    let peer_exists: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM federation_peers WHERE id = ?",
-    )
-    .bind(&req.peer_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let peer_exists = federation_peer::Entity::find_by_id(&req.peer_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     if peer_exists.is_none() {
         return Err((StatusCode::NOT_FOUND, "Federation peer not found".into()));
     }
 
     // Verify local channel exists
-    let chan_exists: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM channels WHERE id = ?",
-    )
-    .bind(&req.local_channel_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let chan_exists = channel::Entity::find_by_id(&req.local_channel_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     if chan_exists.is_none() {
         return Err((StatusCode::NOT_FOUND, "Local channel not found".into()));
@@ -288,17 +292,18 @@ pub async fn link_channel(
     let link_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT INTO federated_channels (id, local_channel_id, peer_id, remote_channel_id, created_at) VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(&link_id)
-    .bind(&req.local_channel_id)
-    .bind(&req.peer_id)
-    .bind(&req.remote_channel_id)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let new_link = federated_channel::ActiveModel {
+        id: Set(link_id.clone()),
+        local_channel_id: Set(req.local_channel_id.clone()),
+        peer_id: Set(req.peer_id.clone()),
+        remote_channel_id: Set(req.remote_channel_id.clone()),
+        created_at: Set(now.clone()),
+    };
+
+    federated_channel::Entity::insert(new_link)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let link = FederatedChannel {
         id: link_id,
@@ -325,9 +330,8 @@ pub async fn unlink_channel(
         return Err((StatusCode::FORBIDDEN, "MANAGE_SERVER required".into()));
     }
 
-    sqlx::query("DELETE FROM federated_channels WHERE id = ?")
-        .bind(&link_id)
-        .execute(&state.db)
+    federated_channel::Entity::delete_by_id(&link_id)
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -353,49 +357,48 @@ pub async fn receive_federated_message(
     ))?;
 
     // Validate shared secret and find peer
-    let peer = sqlx::query_as::<_, FederationPeer>(
-        "SELECT id, name, host, port, shared_secret, status, direction, created_at, last_seen FROM federation_peers WHERE shared_secret = ? AND status = 'active'",
-    )
-    .bind(secret)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::UNAUTHORIZED, "Invalid or inactive federation secret".into()))?;
+    let peer = federation_peer::Entity::find()
+        .filter(federation_peer::Column::SharedSecret.eq(secret))
+        .filter(federation_peer::Column::Status.eq("active"))
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::UNAUTHORIZED, "Invalid or inactive federation secret".into()))?;
 
     // Find local channel linked to the remote channel_id from this peer
-    let link = sqlx::query_as::<_, FederatedChannel>(
-        "SELECT id, local_channel_id, peer_id, remote_channel_id, created_at FROM federated_channels WHERE peer_id = ? AND remote_channel_id = ?",
-    )
-    .bind(&peer.id)
-    .bind(&req.channel_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::NOT_FOUND, "No linked channel for this peer/channel".into()))?;
+    let link = federated_channel::Entity::find()
+        .filter(federated_channel::Column::PeerId.eq(&peer.id))
+        .filter(federated_channel::Column::RemoteChannelId.eq(&req.channel_id))
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "No linked channel for this peer/channel".into()))?;
 
     // Insert message into local channel
     let msg_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let federated_user_name = format!("{} [{}]", req.user_name, req.server_name);
 
-    sqlx::query(
-        "INSERT INTO messages (id, channel_id, user_id, user_name, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&msg_id)
-    .bind(&link.local_channel_id)
-    .bind(&format!("fed:{}", peer.id))
-    .bind(&federated_user_name)
-    .bind(&req.content)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let new_msg = message::ActiveModel {
+        id: Set(msg_id.clone()),
+        channel_id: Set(link.local_channel_id.clone()),
+        user_id: Set(format!("fed:{}", peer.id)),
+        user_name: Set(Some(federated_user_name.clone())),
+        content: Set(req.content.clone()),
+        created_at: Set(now.clone()),
+        ..Default::default()
+    };
+
+    message::Entity::insert(new_msg)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     // Update last_seen for the peer
-    sqlx::query("UPDATE federation_peers SET last_seen = ? WHERE id = ?")
-        .bind(&now)
-        .bind(&peer.id)
-        .execute(&state.db)
+    federation_peer::Entity::update_many()
+        .col_expr(federation_peer::Column::LastSeen, Expr::value(now.clone()))
+        .filter(federation_peer::Column::Id.eq(&peer.id))
+        .exec(&state.db)
         .await
         .ok();
 
@@ -431,9 +434,10 @@ pub async fn activate_peer(
         return Err((StatusCode::FORBIDDEN, "MANAGE_SERVER required".into()));
     }
 
-    sqlx::query("UPDATE federation_peers SET status = 'active' WHERE id = ?")
-        .bind(&peer_id)
-        .execute(&state.db)
+    federation_peer::Entity::update_many()
+        .col_expr(federation_peer::Column::Status, Expr::value("active"))
+        .filter(federation_peer::Column::Id.eq(&peer_id))
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 

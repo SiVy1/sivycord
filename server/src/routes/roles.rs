@@ -3,8 +3,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Extension, Json,
 };
+use sea_orm::*;
 use uuid::Uuid;
 
+use crate::entities::{role, user_role};
 use crate::models::{
     AssignRoleRequest, CreateRoleRequest, Permissions, Role, RoleWithMembers, UpdateRoleRequest,
 };
@@ -20,21 +22,18 @@ pub async fn user_has_permission(
     user_id: &str,
     required: Permissions,
 ) -> Result<bool, StatusCode> {
-    // Get user's roles
-    let roles = sqlx::query_as::<_, Role>(
-        "SELECT r.* FROM roles r 
-         INNER JOIN user_roles ur ON r.id = ur.role_id 
-         WHERE ur.user_id = ?
-         ORDER BY r.position DESC",
-    )
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Get user's roles via join
+    let roles: Vec<role::Model> = role::Entity::find()
+        .inner_join(user_role::Entity)
+        .filter(user_role::Column::UserId.eq(user_id))
+        .order_by_desc(role::Column::Position)
+        .all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Check if any role has the required permission or ADMINISTRATOR
-    for role in roles {
-        let perms = Permissions::from_bits_truncate(role.permissions);
+    for r in roles {
+        let perms = Permissions::from_bits_truncate(r.permissions);
         if perms.contains(Permissions::ADMINISTRATOR) || perms.contains(required) {
             return Ok(true);
         }
@@ -50,9 +49,10 @@ pub async fn list_roles(
 ) -> Result<Json<Vec<RoleWithMembers>>, StatusCode> {
     let server_id = extract_server_id(&headers);
 
-    let roles = sqlx::query_as::<_, Role>("SELECT * FROM roles WHERE server_id = ? ORDER BY position DESC")
-        .bind(&server_id)
-        .fetch_all(&state.db)
+    let roles = role::Entity::find()
+        .filter(role::Column::ServerId.eq(&server_id))
+        .order_by_desc(role::Column::Position)
+        .all(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to list roles: {}", e);
@@ -61,15 +61,15 @@ pub async fn list_roles(
 
     // Get member count for each role
     let mut result = Vec::new();
-    for role in roles {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM user_roles WHERE role_id = ?")
-            .bind(&role.id)
-            .fetch_one(&state.db)
+    for r in roles {
+        let count = user_role::Entity::find()
+            .filter(user_role::Column::RoleId.eq(&r.id))
+            .count(&state.db)
             .await
-            .unwrap_or(0);
+            .unwrap_or(0) as i64;
 
         result.push(RoleWithMembers {
-            role,
+            role: r,
             member_count: count,
         });
     }
@@ -98,10 +98,10 @@ pub async fn create_role(
     }
 
     // Check for duplicate name within server
-    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE name = ? AND server_id = ?")
-        .bind(&name)
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    let exists = role::Entity::find()
+        .filter(role::Column::Name.eq(&name))
+        .filter(role::Column::ServerId.eq(&server_id))
+        .count(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -110,9 +110,12 @@ pub async fn create_role(
     }
 
     // Get max position within server
-    let max_position: Option<i64> = sqlx::query_scalar("SELECT MAX(position) FROM roles WHERE server_id = ?")
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    let max_position: Option<i64> = role::Entity::find()
+        .filter(role::Column::ServerId.eq(&server_id))
+        .select_only()
+        .column_as(role::Column::Position.max(), "position")
+        .into_tuple()
+        .one(&state.db)
         .await
         .ok()
         .flatten();
@@ -123,22 +126,23 @@ pub async fn create_role(
     let role_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT INTO roles (id, name, color, position, permissions, created_at, server_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&role_id)
-    .bind(&name)
-    .bind(&req.color)
-    .bind(position)
-    .bind(req.permissions)
-    .bind(&now)
-    .bind(&server_id)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create role: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let new_role = role::ActiveModel {
+        id: Set(role_id.clone()),
+        name: Set(name.clone()),
+        color: Set(req.color.clone()),
+        position: Set(position),
+        permissions: Set(req.permissions),
+        created_at: Set(now.clone()),
+        server_id: Set(server_id.clone()),
+    };
+
+    role::Entity::insert(new_role)
+        .exec(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create role: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let role = Role {
         id: role_id,
@@ -166,32 +170,34 @@ pub async fn update_role(
     }
 
     // Get existing role
-    let role = sqlx::query_as::<_, Role>("SELECT * FROM roles WHERE id = ?")
-        .bind(&role_id)
-        .fetch_optional(&state.db)
+    let existing = role::Entity::find_by_id(&role_id)
+        .one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Update fields
-    let name = req.name.unwrap_or(role.name);
-    let color = req.color.or(role.color);
-    let position = req.position.unwrap_or(role.position);
-    let permissions = req.permissions.unwrap_or(role.permissions);
+    let name = req.name.unwrap_or(existing.name);
+    let color = req.color.or(existing.color);
+    let position = req.position.unwrap_or(existing.position);
+    let permissions = req.permissions.unwrap_or(existing.permissions);
 
-    sqlx::query(
-        "UPDATE roles SET name = ?, color = ?, position = ?, permissions = ? WHERE id = ?",
-    )
-    .bind(&name)
-    .bind(&color)
-    .bind(position)
-    .bind(permissions)
-    .bind(&role_id)    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to update role: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let mut update = role::ActiveModel {
+        id: Set(role_id.clone()),
+        ..Default::default()
+    };
+    update.name = Set(name.clone());
+    update.color = Set(color.clone());
+    update.position = Set(position);
+    update.permissions = Set(permissions);
+
+    role::Entity::update(update)
+        .exec(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update role: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(Role {
         id: role_id,
@@ -199,8 +205,8 @@ pub async fn update_role(
         color,
         position,
         permissions,
-        created_at: role.created_at,
-        server_id: role.server_id,
+        created_at: existing.created_at,
+        server_id: existing.server_id,
     }))
 }
 
@@ -218,9 +224,10 @@ pub async fn delete_role(
     // Cannot delete default roles
     if role_id == "admin-role" || role_id == "moderator-role" || role_id == "member-role" {
         return Err(StatusCode::FORBIDDEN);
-    }    sqlx::query("DELETE FROM roles WHERE id = ?")
-        .bind(&role_id)
-        .execute(&state.db)
+    }
+
+    role::Entity::delete_by_id(&role_id)
+        .exec(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to delete role: {}", e);
@@ -242,9 +249,8 @@ pub async fn assign_role(
     }
 
     // Check if role exists
-    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE id = ?")
-        .bind(&req.role_id)
-        .fetch_one(&state.db)
+    let exists = role::Entity::find_by_id(&req.role_id)
+        .count(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -252,19 +258,28 @@ pub async fn assign_role(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();    // Assign role (ignore if already assigned)
-    sqlx::query(
-        "INSERT OR IGNORE INTO user_roles (user_id, role_id, assigned_at) VALUES (?, ?, ?)",
-    )
-    .bind(&req.user_id)
-    .bind(&req.role_id)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to assign role: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // Assign role (ignore if already assigned)
+    let assignment = user_role::ActiveModel {
+        user_id: Set(req.user_id.clone()),
+        role_id: Set(req.role_id.clone()),
+        assigned_at: Set(now),
+    };
+
+    user_role::Entity::insert(assignment)
+        .on_conflict(
+            sea_query::OnConflict::columns([user_role::Column::UserId, user_role::Column::RoleId])
+                .do_nothing()
+                .to_owned(),
+        )
+        .do_nothing()
+        .exec(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to assign role: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(StatusCode::OK)
 }
@@ -278,10 +293,12 @@ pub async fn remove_role(
     // Check permission
     if !user_has_permission(&state, &claims.sub, Permissions::MANAGE_ROLES).await? {
         return Err(StatusCode::FORBIDDEN);
-    }    sqlx::query("DELETE FROM user_roles WHERE user_id = ? AND role_id = ?")
-        .bind(&user_id)
-        .bind(&role_id)
-        .execute(&state.db)
+    }
+
+    user_role::Entity::delete_many()
+        .filter(user_role::Column::UserId.eq(&user_id))
+        .filter(user_role::Column::RoleId.eq(&role_id))
+        .exec(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to remove role: {}", e);
@@ -295,19 +312,17 @@ pub async fn remove_role(
 pub async fn get_user_roles(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
-) -> Result<Json<Vec<Role>>, StatusCode> {    let roles = sqlx::query_as::<_, Role>(
-        "SELECT r.* FROM roles r 
-         INNER JOIN user_roles ur ON r.id = ur.role_id 
-         WHERE ur.user_id = ?
-         ORDER BY r.position DESC",
-    )
-    .bind(&user_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to get user roles: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+) -> Result<Json<Vec<Role>>, StatusCode> {
+    let roles = role::Entity::find()
+        .inner_join(user_role::Entity)
+        .filter(user_role::Column::UserId.eq(&user_id))
+        .order_by_desc(role::Column::Position)
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user roles: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(roles))
 }

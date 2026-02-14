@@ -1,7 +1,9 @@
 use axum::{extract::{State, Path}, Json, response::IntoResponse, http::{HeaderMap, StatusCode}};
+use sea_orm::*;
 use serde::Deserialize;
 use uuid::Uuid;
-use crate::models::{CreateInviteRequest, InviteResponse, JoinRequest, JoinResponse, InviteCode};
+use crate::entities::{invite_code, server};
+use crate::models::{CreateInviteRequest, InviteResponse, JoinRequest, JoinResponse};
 use crate::state::AppState;
 use crate::token;
 use crate::routes::audit_logs::create_audit_log;
@@ -14,12 +16,18 @@ pub async fn create_invite(
 ) -> Result<(StatusCode, Json<InviteResponse>), StatusCode> {
     let server_id = extract_server_id(&headers);
     let code = token::generate_invite_code();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query("INSERT INTO invite_codes (code, max_uses, server_id) VALUES (?, ?, ?)")
-        .bind(&code)
-        .bind(req.max_uses)
-        .bind(&server_id)
-        .execute(&state.db)
+    let new_invite = invite_code::ActiveModel {
+        code: Set(code.clone()),
+        created_at: Set(now),
+        uses: Set(0),
+        max_uses: Set(req.max_uses),
+        server_id: Set(server_id),
+    };
+
+    invite_code::Entity::insert(new_invite)
+        .exec(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to insert invite: {}", e);
@@ -46,18 +54,14 @@ pub async fn join_server(
     State(state): State<AppState>,
     Json(req): Json<JoinRequest>,
 ) -> Result<Json<JoinResponse>, StatusCode> {
-    let invite = sqlx::query_as::<_, crate::models::InviteCode>(
-        "SELECT * FROM invite_codes WHERE code = ?",
-    )
-    .bind(&req.invite_code)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to fetch invite: {}", e);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let invite = invite.ok_or(StatusCode::NOT_FOUND)?;
+    let invite = invite_code::Entity::find_by_id(&req.invite_code)
+        .one(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch invite: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
 
     if let Some(max) = invite.max_uses {
         if invite.uses >= max {
@@ -65,9 +69,11 @@ pub async fn join_server(
         }
     }
 
-    sqlx::query("UPDATE invite_codes SET uses = uses + 1 WHERE code = ?")
-        .bind(&req.invite_code)
-        .execute(&state.db)
+    // Increment uses
+    let mut update: invite_code::ActiveModel = invite.clone().into();
+    update.uses = Set(invite.uses + 1);
+    invite_code::Entity::update(update)
+        .exec(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to update invite uses: {}", e);
@@ -77,11 +83,13 @@ pub async fn join_server(
     let user_id = Uuid::new_v4().to_string();
 
     // Get server name from the invite's server
-    let server_name: String = sqlx::query_scalar("SELECT name FROM servers WHERE id = ?")
-        .bind(&invite.server_id)
-        .fetch_one(&state.db)
+    let server_name = server::Entity::find_by_id(&invite.server_id)
+        .one(&state.db)
         .await
-        .unwrap_or_else(|_| "SivySpeak Server".to_string());
+        .ok()
+        .flatten()
+        .map(|s| s.name)
+        .unwrap_or_else(|| "SivySpeak Server".to_string());
 
     Ok(Json(JoinResponse {
         user_id,
@@ -104,18 +112,19 @@ pub async fn join_direct(
         server_name: "SivySpeak Server".to_string(),
     })
 }
+
 pub async fn list_invites(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Json<Vec<crate::models::InviteCode>> {
     let server_id = extract_server_id(&headers);
 
-    let invites: Vec<crate::models::InviteCode> =
-        sqlx::query_as("SELECT * FROM invite_codes WHERE server_id = ? ORDER BY created_at DESC")
-            .bind(&server_id)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default();
+    let invites = invite_code::Entity::find()
+        .filter(invite_code::Column::ServerId.eq(&server_id))
+        .order_by_desc(invite_code::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
 
     Json(invites)
 }
@@ -124,9 +133,8 @@ pub async fn delete_invite(
     State(state): State<AppState>,
     Path(code): Path<String>,
 ) -> impl IntoResponse {
-    sqlx::query("DELETE FROM invite_codes WHERE code = ?")
-        .bind(&code)
-        .execute(&state.db)
+    invite_code::Entity::delete_by_id(&code)
+        .exec(&state.db)
         .await
         .ok();
 

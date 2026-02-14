@@ -8,10 +8,13 @@ use axum::{
     Json,
 };
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, Set, ActiveModelTrait};
+use sea_orm::sea_query::OnConflict;
 use serde::{Deserialize, Serialize};
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
+use crate::entities::{user, server_member, role, user_role};
 use crate::state::AppState;
 
 // ─── JWT Claims ───
@@ -117,9 +120,9 @@ pub async fn register(
     }
 
     // Check duplicate
-    let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE username = ?")
-        .bind(&username)
-        .fetch_optional(&state.db)
+    let existing = user::Entity::find()
+        .filter(user::Column::Username.eq(&username))
+        .one(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -141,24 +144,37 @@ pub async fn register(
         .to_string();
 
     let user_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT INTO users (id, username, display_name, password_hash) VALUES (?, ?, ?, ?)",
-    )
-    .bind(&user_id)
-    .bind(&username)
-    .bind(&display_name)
-    .bind(&password_hash)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let new_user = user::ActiveModel {
+        id: Set(user_id.clone()),
+        username: Set(username.clone()),
+        display_name: Set(display_name.clone()),
+        password_hash: Set(password_hash),
+        avatar_url: Set(None),
+        created_at: Set(now.clone()),
+    };
+
+    user::Entity::insert(new_user)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     // Add user to the default server
-    sqlx::query("INSERT OR IGNORE INTO server_members (server_id, user_id) VALUES ('default', ?)")
-        .bind(&user_id)
-        .execute(&state.db)
-        .await
-        .ok();
+    let sm = server_member::ActiveModel {
+        server_id: Set("default".to_string()),
+        user_id: Set(user_id.clone()),
+        joined_at: Set(now.clone()),
+    };
+    let _ = server_member::Entity::insert(sm)
+        .on_conflict(
+            OnConflict::columns([server_member::Column::ServerId, server_member::Column::UserId])
+                .do_nothing()
+                .to_owned(),
+        )
+        .do_nothing()
+        .exec(&state.db)
+        .await;
 
     // If setup_key provided, validate and grant admin role
     if let Some(key) = &req.setup_key {
@@ -174,22 +190,40 @@ pub async fn register(
                     let admin_role_id = "admin-role";
 
                     // Ensure Admin role exists (for default server)
-                    sqlx::query("INSERT OR IGNORE INTO roles (id, name, color, position, permissions, created_at, server_id) VALUES (?, 'Admin', '#FF0000', 999, ?, ?, 'default')")
-                        .bind(admin_role_id)
-                        .bind(crate::models::Permissions::ADMINISTRATOR.bits())
-                        .bind(&now)
-                        .execute(&state.db)
-                        .await
-                        .ok();
+                    let admin_role = role::ActiveModel {
+                        id: Set(admin_role_id.to_string()),
+                        name: Set("Admin".to_string()),
+                        color: Set(Some("#FF0000".to_string())),
+                        position: Set(999),
+                        permissions: Set(crate::models::Permissions::ADMINISTRATOR.bits()),
+                        created_at: Set(now.clone()),
+                        server_id: Set("default".to_string()),
+                    };
+                    let _ = role::Entity::insert(admin_role)
+                        .on_conflict(
+                            OnConflict::column(role::Column::Id)
+                                .do_nothing()
+                                .to_owned(),
+                        )
+                        .do_nothing()
+                        .exec(&state.db)
+                        .await;
 
                     // Assign role
-                    sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id, assigned_at) VALUES (?, ?, ?)")
-                        .bind(&user_id)
-                        .bind(admin_role_id)
-                        .bind(&now)
-                        .execute(&state.db)
-                        .await
-                        .ok();
+                    let ur = user_role::ActiveModel {
+                        user_id: Set(user_id.clone()),
+                        role_id: Set(admin_role_id.to_string()),
+                        assigned_at: Set(now),
+                    };
+                    let _ = user_role::Entity::insert(ur)
+                        .on_conflict(
+                            OnConflict::columns([user_role::Column::UserId, user_role::Column::RoleId])
+                                .do_nothing()
+                                .to_owned(),
+                        )
+                        .do_nothing()
+                        .exec(&state.db)
+                        .await;
 
                     // Consume the key — one-time use
                     *setup_key_guard = None;
@@ -233,24 +267,15 @@ pub async fn login(
 
     let username = req.username.trim().to_lowercase();
 
-    #[derive(sqlx::FromRow)]
-    struct UserRow {
-        id: String,
-        username: String,
-        display_name: String,
-        password_hash: String,
-        avatar_url: Option<String>,
-    }
-
-    let user: UserRow = sqlx::query_as("SELECT id, username, display_name, password_hash, avatar_url FROM users WHERE username = ?")
-        .bind(&username)
-        .fetch_optional(&state.db)
+    let user_row = user::Entity::find()
+        .filter(user::Column::Username.eq(&username))
+        .one(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
         .ok_or((StatusCode::UNAUTHORIZED, "Invalid username or password".into()))?;
 
     // Verify password
-    let parsed_hash = PasswordHash::new(&user.password_hash)
+    let parsed_hash = PasswordHash::new(&user_row.password_hash)
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Hash parse error".into()))?;
 
     Argon2::default()
@@ -264,18 +289,18 @@ pub async fn login(
 
     let token = create_jwt(
         &state.jwt_secret,
-        &user.id,
-        &user.username,
-        &user.display_name,
+        &user_row.id,
+        &user_row.username,
+        &user_row.display_name,
     )?;
 
     Ok(Json(AuthResponse {
         token,
         user: UserInfo {
-            id: user.id,
-            username: user.username,
-            display_name: user.display_name,
-            avatar_url: user.avatar_url,
+            id: user_row.id,
+            username: user_row.username,
+            display_name: user_row.display_name,
+            avatar_url: user_row.avatar_url,
         },
     }))
 }
@@ -286,27 +311,17 @@ pub async fn get_me(
 ) -> Result<Json<UserInfo>, (StatusCode, String)> {
     let claims = extract_claims(&state.jwt_secret, &headers)?;
 
-    #[derive(sqlx::FromRow)]
-    struct UserRow {
-        id: String,
-        username: String,
-        display_name: String,
-        avatar_url: Option<String>,
-    }
-
-    let user: UserRow =
-        sqlx::query_as("SELECT id, username, display_name, avatar_url FROM users WHERE id = ?")
-            .bind(&claims.sub)
-            .fetch_optional(&state.db)
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-            .ok_or((StatusCode::NOT_FOUND, "User not found".into()))?;
+    let user_row = user::Entity::find_by_id(&claims.sub)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "User not found".into()))?;
 
     Ok(Json(UserInfo {
-        id: user.id,
-        username: user.username,
-        display_name: user.display_name,
-        avatar_url: user.avatar_url,
+        id: user_row.id,
+        username: user_row.username,
+        display_name: user_row.display_name,
+        avatar_url: user_row.avatar_url,
     }))
 }
 

@@ -1,0 +1,17 @@
+pub mod audit_log;
+pub mod ban;
+pub mod bot;
+pub mod channel;
+pub mod custom_emoji;
+pub mod federated_channel;
+pub mod federation_peer;
+pub mod invite_code;
+pub mod message;
+pub mod role;
+pub mod server;
+pub mod server_member;
+pub mod upload;
+pub mod user;
+pub mod user_key;
+pub mod user_role;
+pub mod webhook;

@@ -4,8 +4,10 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
 };
+use sea_orm::*;
 use uuid::Uuid;
 
+use crate::entities::{upload, user};
 use crate::routes::auth;
 use crate::state::AppState;
 
@@ -104,17 +106,21 @@ pub async fn upload_file(
                 )
             })?;
 
-        sqlx::query(
-            "INSERT INTO uploads (id, user_id, filename, mime_type, size) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(&claims.sub)
-        .bind(&filename)
-        .bind(&content_type)
-        .bind(data.len() as i64)
-        .execute(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let new_upload = upload::ActiveModel {
+            id: Set(id.clone()),
+            user_id: Set(claims.sub.clone()),
+            filename: Set(filename.clone()),
+            mime_type: Set(content_type.clone()),
+            size: Set(data.len() as i64),
+            created_at: Set(now),
+        };
+
+        upload::Entity::insert(new_upload)
+            .exec(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
         return Ok((
             StatusCode::CREATED,
@@ -136,21 +142,14 @@ pub async fn serve_upload(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    #[derive(sqlx::FromRow)]
-    struct UploadRow {
-        id: String,
-        mime_type: String,
-    }
-
-    let upload: UploadRow = sqlx::query_as("SELECT id, mime_type FROM uploads WHERE id = ?")
-        .bind(&id)
-        .fetch_optional(&state.db)
+    let upload_row = upload::Entity::find_by_id(&id)
+        .one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let ext = get_extension(&upload.mime_type);
-    let path = format!("./uploads/{}.{ext}", upload.id);
+    let ext = get_extension(&upload_row.mime_type);
+    let path = format!("./uploads/{}.{ext}", upload_row.id);
 
     let data = tokio::fs::read(&path)
         .await
@@ -158,7 +157,7 @@ pub async fn serve_upload(
 
     Ok((
         [
-            (header::CONTENT_TYPE, upload.mime_type),
+            (header::CONTENT_TYPE, upload_row.mime_type),
             (header::CACHE_CONTROL, "public, max-age=86400".to_string()),
         ],
         Body::from(data),
@@ -213,24 +212,28 @@ pub async fn upload_avatar(
                 )
             })?;
 
-        sqlx::query(
-            "INSERT INTO uploads (id, user_id, filename, mime_type, size) VALUES (?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(&claims.sub)
-        .bind("avatar")
-        .bind(&content_type)
-        .bind(data.len() as i64)
-        .execute(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+        let new_upload = upload::ActiveModel {
+            id: Set(id.clone()),
+            user_id: Set(claims.sub.clone()),
+            filename: Set("avatar".to_string()),
+            mime_type: Set(content_type.clone()),
+            size: Set(data.len() as i64),
+            created_at: Set(now),
+        };
+
+        upload::Entity::insert(new_upload)
+            .exec(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
         let avatar_url = format!("/api/uploads/{id}");
 
-        sqlx::query("UPDATE users SET avatar_url = ? WHERE id = ?")
-            .bind(&avatar_url)
-            .bind(&claims.sub)
-            .execute(&state.db)
+        user::Entity::update_many()
+            .col_expr(user::Column::AvatarUrl, Expr::value(Some(avatar_url.clone())))
+            .filter(user::Column::Id.eq(&claims.sub))
+            .exec(&state.db)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 

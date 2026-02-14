@@ -3,23 +3,16 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use sea_orm::*;
 use serde::Serialize;
 use uuid::Uuid;
 
+use crate::entities::{custom_emoji, upload};
 use crate::routes::auth;
 use crate::state::AppState;
 
 const MAX_EMOJI_SIZE: usize = 256 * 1024; // 256KB
 const ALLOWED_TYPES: &[&str] = &["image/png", "image/gif", "image/webp"];
-
-#[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct CustomEmoji {
-    pub id: String,
-    pub name: String,
-    pub upload_id: String,
-    pub user_id: String,
-    pub created_at: String,
-}
 
 #[derive(Debug, Serialize)]
 pub struct EmojiResponse {
@@ -33,8 +26,9 @@ pub struct EmojiResponse {
 pub async fn list_emoji(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<EmojiResponse>>, StatusCode> {
-    let emojis = sqlx::query_as::<_, CustomEmoji>("SELECT * FROM custom_emoji ORDER BY name ASC")
-        .fetch_all(&state.db)
+    let emojis = custom_emoji::Entity::find()
+        .order_by_asc(custom_emoji::Column::Name)
+        .all(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -99,9 +93,9 @@ pub async fn create_emoji(
     }
 
     // Check duplicate
-    let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM custom_emoji WHERE name = ?")
-        .bind(&name)
-        .fetch_optional(&state.db)
+    let existing = custom_emoji::Entity::find()
+        .filter(custom_emoji::Column::Name.eq(&name))
+        .one(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
     if existing.is_some() {
@@ -121,23 +115,34 @@ pub async fn create_emoji(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Write error: {e}")))?;
 
-    sqlx::query("INSERT INTO uploads (id, user_id, filename, mime_type, size) VALUES (?, ?, ?, ?, ?)")
-        .bind(&upload_id)
-        .bind(&claims.sub)
-        .bind(format!("{name}.{ext}"))
-        .bind(&content_type)
-        .bind(data.len() as i64)
-        .execute(&state.db)
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let new_upload = upload::ActiveModel {
+        id: Set(upload_id.clone()),
+        user_id: Set(claims.sub.clone()),
+        filename: Set(format!("{name}.{ext}")),
+        mime_type: Set(content_type.clone()),
+        size: Set(data.len() as i64),
+        created_at: Set(now.clone()),
+    };
+
+    upload::Entity::insert(new_upload)
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let emoji_id = Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO custom_emoji (id, name, upload_id, user_id) VALUES (?, ?, ?, ?)")
-        .bind(&emoji_id)
-        .bind(&name)
-        .bind(&upload_id)
-        .bind(&claims.sub)
-        .execute(&state.db)
+
+    let new_emoji = custom_emoji::ActiveModel {
+        id: Set(emoji_id.clone()),
+        name: Set(name.clone()),
+        upload_id: Set(upload_id.clone()),
+        user_id: Set(claims.sub.clone()),
+        created_at: Set(now),
+    };
+
+    custom_emoji::Entity::insert(new_emoji)
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -157,9 +162,8 @@ pub async fn delete_emoji(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let emoji: CustomEmoji = sqlx::query_as("SELECT * FROM custom_emoji WHERE id = ?")
-        .bind(&id)
-        .fetch_optional(&state.db)
+    let emoji = custom_emoji::Entity::find_by_id(&id)
+        .one(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
         .ok_or((StatusCode::NOT_FOUND, "Emoji not found".into()))?;
@@ -168,9 +172,8 @@ pub async fn delete_emoji(
         return Err((StatusCode::FORBIDDEN, "You can only delete your own emoji".into()));
     }
 
-    sqlx::query("DELETE FROM custom_emoji WHERE id = ?")
-        .bind(&id)
-        .execute(&state.db)
+    custom_emoji::Entity::delete_by_id(&id)
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -182,9 +185,9 @@ pub async fn serve_emoji_by_name(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<axum::response::Redirect, (StatusCode, String)> {
-    let emoji: CustomEmoji = sqlx::query_as("SELECT * FROM custom_emoji WHERE name = ?")
-        .bind(&name.to_lowercase())
-        .fetch_optional(&state.db)
+    let emoji = custom_emoji::Entity::find()
+        .filter(custom_emoji::Column::Name.eq(name.to_lowercase()))
+        .one(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
         .ok_or((StatusCode::NOT_FOUND, "Emoji not found".into()))?;

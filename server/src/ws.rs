@@ -6,10 +6,12 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
+use sea_orm::*;
 use serde::Deserialize;
 use std::collections::HashSet;
 use uuid::Uuid;
 
+use crate::entities::{bot, federated_channel, federation_peer, message, server, user};
 use crate::models::{Bot, WsClientMessage, WsServerMessage};
 use crate::routes::auth;
 use crate::state::AppState;
@@ -40,15 +42,13 @@ pub async fn ws_handler(
     let identity = if let Some(ref t) = query.token {
         if t.starts_with("bot.") {
             // Bot token auth
-            let bot = sqlx::query_as::<_, Bot>(
-                "SELECT id, name, avatar_url, owner_id, token, permissions, created_at, server_id FROM bots WHERE token = ?",
-            )
-            .bind(t)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten();
-            bot.map(WsIdentity::Bot)
+            let bot_row = bot::Entity::find()
+                .filter(bot::Column::Token.eq(t.as_str()))
+                .one(&state.db)
+                .await
+                .ok()
+                .flatten();
+            bot_row.map(WsIdentity::Bot)
         } else {
             // JWT user auth
             auth::decode_jwt(&state.jwt_secret, t)
@@ -201,35 +201,39 @@ async fn handle_socket(
                         let msg_id = Uuid::new_v4().to_string();
                         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-                        if let Err(e) = sqlx::query(
-                            "INSERT INTO messages (id, channel_id, user_id, user_name, content, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        )
-                        .bind(&msg_id)
-                        .bind(&channel_id)
-                        .bind(&user_id)
-                        .bind(&user_name)
-                        .bind(&content)
-                        .bind(&now)
-                        .execute(&state.db)
-                        .await {
+                        let new_msg = message::ActiveModel {
+                            id: Set(msg_id.clone()),
+                            channel_id: Set(channel_id.clone()),
+                            user_id: Set(user_id.clone()),
+                            user_name: Set(Some(user_name.clone())),
+                            content: Set(content.clone()),
+                            created_at: Set(now.clone()),
+                            ..Default::default()
+                        };
+
+                        if let Err(e) = message::Entity::insert(new_msg)
+                            .exec(&state.db)
+                            .await {
                             tracing::error!("Failed to save message: {e}");
                             continue;
                         }
 
                         let avatar_url: Option<String> = if is_bot_connection {
                             // For bots, get avatar from bots table
-                            sqlx::query_scalar::<_, Option<String>>("SELECT avatar_url FROM bots WHERE id = ?")
-                                .bind(&user_id)
-                                .fetch_one(&state.db)
+                            bot::Entity::find_by_id(&user_id)
+                                .one(&state.db)
                                 .await
-                                .unwrap_or(None)
+                                .ok()
+                                .flatten()
+                                .and_then(|b| b.avatar_url)
                         } else {
                             // For users, get avatar from users table
-                            sqlx::query_scalar::<_, Option<String>>("SELECT avatar_url FROM users WHERE id = ?")
-                                .bind(&user_id)
-                                .fetch_one(&state.db)
+                            user::Entity::find_by_id(&user_id)
+                                .one(&state.db)
                                 .await
-                                .unwrap_or(None)
+                                .ok()
+                                .flatten()
+                                .and_then(|u| u.avatar_url)
                         };
 
                         let broadcast_msg = WsServerMessage::NewMessage {
@@ -252,49 +256,42 @@ async fn handle_socket(
                         let fed_user_name = user_name.clone();
                         let fed_content = content;
                         tokio::spawn(async move {
-                            let links: Vec<(String, String)> = sqlx::query_as(
-                                "SELECT fc.remote_channel_id, fp.id FROM federated_channels fc JOIN federation_peers fp ON fp.id = fc.peer_id WHERE fc.local_channel_id = ? AND fp.status = 'active'"
-                            )
-                            .bind(&fed_channel_id)
-                            .fetch_all(&fed_state.db)
-                            .await
-                            .unwrap_or_default();
-
-                            for (remote_channel_id, peer_id) in links {
-                                let peer: Option<(String, i64, String, String)> = sqlx::query_as(
-                                    "SELECT host, port, shared_secret, name FROM federation_peers WHERE id = ?"
-                                )
-                                .bind(&peer_id)
-                                .fetch_optional(&fed_state.db)
+                            // Find federated channel links with active peers
+                            let links = federated_channel::Entity::find()
+                                .filter(federated_channel::Column::LocalChannelId.eq(&fed_channel_id))
+                                .find_also_related(federation_peer::Entity)
+                                .all(&fed_state.db)
                                 .await
-                                .unwrap_or(None);
+                                .unwrap_or_default();
 
-                                if let Some((host, port, secret, _)) = peer {
-                                    let server_name = sqlx::query_scalar::<_, String>(
-                                        "SELECT name FROM servers WHERE id = 'default'"
-                                    )
-                                    .fetch_optional(&fed_state.db)
+                            for (fc, peer_opt) in links {
+                                let Some(peer) = peer_opt else { continue };
+                                if peer.status != "active" { continue; }
+
+                                let server_name = server::Entity::find_by_id("default")
+                                    .one(&fed_state.db)
                                     .await
-                                    .unwrap_or(None)
+                                    .ok()
+                                    .flatten()
+                                    .map(|s| s.name)
                                     .unwrap_or_else(|| "Unknown Server".to_string());
 
-                                    let scheme = if port == 443 { "https" } else { "http" };
-                                    let url = format!("{}://{}:{}/api/federation/message", scheme, host, port);
-                                    let client = reqwest::Client::builder()
-                                        .timeout(std::time::Duration::from_secs(10))
-                                        .build()
-                                        .unwrap_or_else(|_| reqwest::Client::new());
-                                    let _ = client.post(&url)
-                                        .header("Authorization", format!("Federation {}", secret))
-                                        .json(&serde_json::json!({
-                                            "channel_id": remote_channel_id,
-                                            "user_name": fed_user_name,
-                                            "content": fed_content,
-                                            "server_name": server_name,
-                                        }))
-                                        .send()
-                                        .await;
-                                }
+                                let scheme = if peer.port == 443 { "https" } else { "http" };
+                                let url = format!("{}://{}:{}/api/federation/message", scheme, peer.host, peer.port);
+                                let client = reqwest::Client::builder()
+                                    .timeout(std::time::Duration::from_secs(10))
+                                    .build()
+                                    .unwrap_or_else(|_| reqwest::Client::new());
+                                let _ = client.post(&url)
+                                    .header("Authorization", format!("Federation {}", peer.shared_secret))
+                                    .json(&serde_json::json!({
+                                        "channel_id": fc.remote_channel_id,
+                                        "user_name": fed_user_name,
+                                        "content": fed_content,
+                                        "server_name": server_name,
+                                    }))
+                                    .send()
+                                    .await;
                             }
                         });
                     }

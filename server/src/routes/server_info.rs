@@ -1,4 +1,6 @@
 use axum::{extract::State, Json, response::IntoResponse, http::{HeaderMap, StatusCode}};
+use sea_orm::*;
+use crate::entities::{server, channel};
 use crate::models::{Permissions, ServerInfo, UpdateServerRequest};
 use crate::state::AppState;
 use crate::routes::audit_logs::create_audit_log;
@@ -12,29 +14,32 @@ pub async fn get_server_info(
 ) -> Json<ServerInfo> {
     let server_id = extract_server_id(&headers);
 
-    let settings: (String, String, Option<String>, Option<String>, i64) = sqlx::query_as(
-        "SELECT name, description, join_sound_url, leave_sound_url, sound_chance FROM servers WHERE id = ?",
-    )
-    .bind(&server_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or_else(|_| ("SivySpeak Server".to_string(), "Welcome to SivySpeak!".to_string(), None, None, 100));
-
-    let channels: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = ?")
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    let srv = server::Entity::find_by_id(&server_id)
+        .one(&state.db)
         .await
-        .unwrap_or(0);
+        .ok()
+        .flatten();
+
+    let (name, description, join_sound_url, leave_sound_url, sound_chance) = match srv {
+        Some(s) => (s.name, s.description, s.join_sound_url, s.leave_sound_url, s.sound_chance),
+        None => ("SivySpeak Server".to_string(), "Welcome to SivySpeak!".to_string(), None, None, 100),
+    };
+
+    let channels_count = channel::Entity::find()
+        .filter(channel::Column::ServerId.eq(&server_id))
+        .count(&state.db)
+        .await
+        .unwrap_or(0) as i64;
 
     let online = state.online_count();
 
     Json(ServerInfo {
-        name: settings.0,
-        description: settings.1,
-        join_sound_url: settings.2,
-        leave_sound_url: settings.3,
-        sound_chance: settings.4,
-        channels,
+        name,
+        description,
+        join_sound_url,
+        leave_sound_url,
+        sound_chance,
+        channels: channels_count,
         online,
     })
 }
@@ -50,14 +55,17 @@ pub async fn update_server_info(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
     if let Some(name) = payload.name.clone() {
-        sqlx::query("UPDATE servers SET name = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(&name)
-            .bind(&server_id)
-            .execute(&state.db)
+        server::Entity::update_many()
+            .col_expr(server::Column::Name, Expr::value(&name))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
             .await
             .ok();
-        
+
         create_audit_log(
             &state.db,
             &claims.sub,
@@ -70,10 +78,11 @@ pub async fn update_server_info(
     }
 
     if let Some(desc) = payload.description.clone() {
-        sqlx::query("UPDATE servers SET description = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(&desc)
-            .bind(&server_id)
-            .execute(&state.db)
+        server::Entity::update_many()
+            .col_expr(server::Column::Description, Expr::value(&desc))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
             .await
             .ok();
 
@@ -89,13 +98,14 @@ pub async fn update_server_info(
     }
 
     if let Some(url) = payload.join_sound_url.clone() {
-        sqlx::query("UPDATE servers SET join_sound_url = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(&url)
-            .bind(&server_id)
-            .execute(&state.db)
+        server::Entity::update_many()
+            .col_expr(server::Column::JoinSoundUrl, Expr::value(Some(url.clone())))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
             .await
             .ok();
-        
+
         create_audit_log(
             &state.db,
             &claims.sub,
@@ -108,13 +118,14 @@ pub async fn update_server_info(
     }
 
     if let Some(url) = payload.leave_sound_url.clone() {
-        sqlx::query("UPDATE servers SET leave_sound_url = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(&url)
-            .bind(&server_id)
-            .execute(&state.db)
+        server::Entity::update_many()
+            .col_expr(server::Column::LeaveSoundUrl, Expr::value(Some(url.clone())))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
             .await
             .ok();
-        
+
         create_audit_log(
             &state.db,
             &claims.sub,
@@ -127,13 +138,14 @@ pub async fn update_server_info(
     }
 
     if let Some(chance) = payload.sound_chance {
-        sqlx::query("UPDATE servers SET sound_chance = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(chance)
-            .bind(&server_id)
-            .execute(&state.db)
+        server::Entity::update_many()
+            .col_expr(server::Column::SoundChance, Expr::value(chance))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
             .await
             .ok();
-        
+
         create_audit_log(
             &state.db,
             &claims.sub,

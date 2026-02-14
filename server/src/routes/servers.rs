@@ -3,8 +3,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use sea_orm::*;
 use uuid::Uuid;
 
+use crate::entities::{ban, bot, channel, invite_code, role, server, server_member, user, user_role};
 use crate::models::{CreateServerRequest, Permissions, Server, ServerMember};
 use crate::routes::auth::extract_claims;
 use crate::routes::audit_logs::create_audit_log;
@@ -26,19 +28,16 @@ pub async fn list_servers(
 ) -> Result<Json<Vec<Server>>, StatusCode> {
     let claims = extract_claims(&state.jwt_secret, &headers).map_err(|e| e.0)?;
 
-    let servers = sqlx::query_as::<_, Server>(
-        "SELECT s.* FROM servers s
-         INNER JOIN server_members sm ON s.id = sm.server_id
-         WHERE sm.user_id = ?
-         ORDER BY s.created_at ASC",
-    )
-    .bind(&claims.sub)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to list servers: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let servers: Vec<Server> = server::Entity::find()
+        .inner_join(server_member::Entity)
+        .filter(server_member::Column::UserId.eq(&claims.sub))
+        .order_by_asc(server::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list servers: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(servers))
 }
@@ -67,79 +66,113 @@ pub async fn create_server(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     // Create the server
-    sqlx::query(
-        "INSERT INTO servers (id, name, description, owner_id, created_at) VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(&server_id)
-    .bind(&name)
-    .bind(&description)
-    .bind(&claims.sub)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to create server: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let new_server = server::ActiveModel {
+        id: Set(server_id.clone()),
+        name: Set(name.clone()),
+        description: Set(description.clone()),
+        icon_url: Set(None),
+        owner_id: Set(claims.sub.clone()),
+        join_sound_url: Set(None),
+        leave_sound_url: Set(None),
+        sound_chance: Set(100),
+        created_at: Set(now.clone()),
+        updated_at: Set(None),
+    };
+
+    server::Entity::insert(new_server)
+        .exec(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create server: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Add creator as member
-    sqlx::query("INSERT INTO server_members (server_id, user_id, joined_at) VALUES (?, ?, ?)")
-        .bind(&server_id)
-        .bind(&claims.sub)
-        .bind(&now)
-        .execute(&state.db)
+    let member = server_member::ActiveModel {
+        server_id: Set(server_id.clone()),
+        user_id: Set(claims.sub.clone()),
+        joined_at: Set(now.clone()),
+    };
+    server_member::Entity::insert(member)
+        .exec(&state.db)
         .await
         .ok();
 
     // Create an Admin role for this server
     let admin_role_id = format!("{}-admin", server_id);
-    sqlx::query(
-        "INSERT INTO roles (id, name, color, position, permissions, created_at, server_id) VALUES (?, 'Admin', '#FF0000', 999, ?, ?, ?)",
-    )
-    .bind(&admin_role_id)
-    .bind(Permissions::ADMINISTRATOR.bits())
-    .bind(&now)
-    .bind(&server_id)
-    .execute(&state.db)
-    .await
-    .ok();
+    let admin_role = role::ActiveModel {
+        id: Set(admin_role_id.clone()),
+        name: Set("Admin".to_string()),
+        color: Set(Some("#FF0000".to_string())),
+        position: Set(999),
+        permissions: Set(Permissions::ADMINISTRATOR.bits()),
+        created_at: Set(now.clone()),
+        server_id: Set(Some(server_id.clone())),
+    };
+    role::Entity::insert(admin_role)
+        .exec(&state.db)
+        .await
+        .ok();
 
     // Assign admin role to creator
-    sqlx::query("INSERT OR IGNORE INTO user_roles (user_id, role_id, assigned_at) VALUES (?, ?, ?)")
-        .bind(&claims.sub)
-        .bind(&admin_role_id)
-        .bind(&now)
-        .execute(&state.db)
+    let ur = user_role::ActiveModel {
+        user_id: Set(claims.sub.clone()),
+        role_id: Set(admin_role_id.clone()),
+        assigned_at: Set(now.clone()),
+    };
+    user_role::Entity::insert(ur)
+        .on_conflict(
+            sea_query::OnConflict::columns([user_role::Column::UserId, user_role::Column::RoleId])
+                .do_nothing()
+                .to_owned(),
+        )
+        .do_nothing()
+        .exec(&state.db)
         .await
         .ok();
 
     // Create default channels
     let general_id = Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO channels (id, name, description, position, channel_type, server_id) VALUES (?, 'general', 'General chat', 0, 'text', ?)",
-    )
-    .bind(&general_id)
-    .bind(&server_id)
-    .execute(&state.db)
-    .await
-    .ok();
+    let general_ch = channel::ActiveModel {
+        id: Set(general_id.clone()),
+        name: Set("general".to_string()),
+        description: Set(Some("General chat".to_string())),
+        position: Set(0),
+        channel_type: Set("text".to_string()),
+        server_id: Set(Some(server_id.clone())),
+        ..Default::default()
+    };
+    channel::Entity::insert(general_ch)
+        .exec(&state.db)
+        .await
+        .ok();
 
     let voice_id = Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO channels (id, name, description, position, channel_type, server_id) VALUES (?, 'Voice Lounge', 'Voice channel', 1, 'voice', ?)",
-    )
-    .bind(&voice_id)
-    .bind(&server_id)
-    .execute(&state.db)
-    .await
-    .ok();
+    let voice_ch = channel::ActiveModel {
+        id: Set(voice_id.clone()),
+        name: Set("Voice Lounge".to_string()),
+        description: Set(Some("Voice channel".to_string())),
+        position: Set(1),
+        channel_type: Set("voice".to_string()),
+        server_id: Set(Some(server_id.clone())),
+        ..Default::default()
+    };
+    channel::Entity::insert(voice_ch)
+        .exec(&state.db)
+        .await
+        .ok();
 
     // Create a server-specific invite code
-    let invite_code = crate::token::generate_invite_code();
-    sqlx::query("INSERT INTO invite_codes (code, max_uses, server_id) VALUES (?, NULL, ?)")
-        .bind(&invite_code)
-        .bind(&server_id)
-        .execute(&state.db)
+    let invite_code_val = crate::token::generate_invite_code();
+    let ic = invite_code::ActiveModel {
+        code: Set(invite_code_val.clone()),
+        max_uses: Set(None),
+        uses: Set(0),
+        created_by: Set(None),
+        server_id: Set(Some(server_id.clone())),
+    };
+    invite_code::Entity::insert(ic)
+        .exec(&state.db)
         .await
         .ok();
 
@@ -175,9 +208,8 @@ pub async fn get_server(
     State(state): State<AppState>,
     Path(server_id): Path<String>,
 ) -> Result<Json<Server>, StatusCode> {
-    let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = ?")
-        .bind(&server_id)
-        .fetch_optional(&state.db)
+    let server = server::Entity::find_by_id(&server_id)
+        .one(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get server: {e}");
@@ -198,9 +230,8 @@ pub async fn update_server(
     let claims = extract_claims(&state.jwt_secret, &headers).map_err(|e| e.0)?;
 
     // Check if user is owner or has MANAGE_SERVER permission
-    let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = ?")
-        .bind(&server_id)
-        .fetch_optional(&state.db)
+    let server = server::Entity::find_by_id(&server_id)
+        .one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -213,55 +244,56 @@ pub async fn update_server(
         }
     }
 
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
     if let Some(name) = &req.name {
-        sqlx::query("UPDATE servers SET name = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(name)
-            .bind(&server_id)
-            .execute(&state.db)
+        server::Entity::update_many()
+            .col_expr(server::Column::Name, Expr::value(name.clone()))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
             .await
             .ok();
     }
 
     if let Some(desc) = &req.description {
-        sqlx::query("UPDATE servers SET description = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind(desc)
-            .bind(&server_id)
-            .execute(&state.db)
+        server::Entity::update_many()
+            .col_expr(server::Column::Description, Expr::value(desc.clone()))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
             .await
             .ok();
     }
 
     if let Some(url) = &req.join_sound_url {
-        sqlx::query(
-            "UPDATE servers SET join_sound_url = ?, updated_at = datetime('now') WHERE id = ?",
-        )
-        .bind(url)
-        .bind(&server_id)
-        .execute(&state.db)
-        .await
-        .ok();
+        server::Entity::update_many()
+            .col_expr(server::Column::JoinSoundUrl, Expr::value(url.clone()))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
+            .await
+            .ok();
     }
 
     if let Some(url) = &req.leave_sound_url {
-        sqlx::query(
-            "UPDATE servers SET leave_sound_url = ?, updated_at = datetime('now') WHERE id = ?",
-        )
-        .bind(url)
-        .bind(&server_id)
-        .execute(&state.db)
-        .await
-        .ok();
+        server::Entity::update_many()
+            .col_expr(server::Column::LeaveSoundUrl, Expr::value(url.clone()))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
+            .await
+            .ok();
     }
 
     if let Some(chance) = req.sound_chance {
-        sqlx::query(
-            "UPDATE servers SET sound_chance = ?, updated_at = datetime('now') WHERE id = ?",
-        )
-        .bind(chance)
-        .bind(&server_id)
-        .execute(&state.db)
-        .await
-        .ok();
+        server::Entity::update_many()
+            .col_expr(server::Column::SoundChance, Expr::value(chance))
+            .col_expr(server::Column::UpdatedAt, Expr::value(now.clone()))
+            .filter(server::Column::Id.eq(&server_id))
+            .exec(&state.db)
+            .await
+            .ok();
     }
 
     Ok(StatusCode::OK)
@@ -280,51 +312,49 @@ pub async fn delete_server(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let server = sqlx::query_as::<_, Server>("SELECT * FROM servers WHERE id = ?")
-        .bind(&server_id)
-        .fetch_optional(&state.db)
+    let srv = server::Entity::find_by_id(&server_id)
+        .one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    if server.owner_id != claims.sub {
+    if srv.owner_id != claims.sub {
         return Err(StatusCode::FORBIDDEN);
     }
 
     // Delete all related data
-    sqlx::query("DELETE FROM channels WHERE server_id = ?")
-        .bind(&server_id)
-        .execute(&state.db)
+    channel::Entity::delete_many()
+        .filter(channel::Column::ServerId.eq(&server_id))
+        .exec(&state.db)
         .await
         .ok();
-    sqlx::query("DELETE FROM roles WHERE server_id = ?")
-        .bind(&server_id)
-        .execute(&state.db)
+    role::Entity::delete_many()
+        .filter(role::Column::ServerId.eq(&server_id))
+        .exec(&state.db)
         .await
         .ok();
-    sqlx::query("DELETE FROM invite_codes WHERE server_id = ?")
-        .bind(&server_id)
-        .execute(&state.db)
+    invite_code::Entity::delete_many()
+        .filter(invite_code::Column::ServerId.eq(&server_id))
+        .exec(&state.db)
         .await
         .ok();
-    sqlx::query("DELETE FROM bots WHERE server_id = ?")
-        .bind(&server_id)
-        .execute(&state.db)
+    bot::Entity::delete_many()
+        .filter(bot::Column::ServerId.eq(&server_id))
+        .exec(&state.db)
         .await
         .ok();
-    sqlx::query("DELETE FROM bans WHERE server_id = ?")
-        .bind(&server_id)
-        .execute(&state.db)
+    ban::Entity::delete_many()
+        .filter(ban::Column::ServerId.eq(&server_id))
+        .exec(&state.db)
         .await
         .ok();
-    sqlx::query("DELETE FROM server_members WHERE server_id = ?")
-        .bind(&server_id)
-        .execute(&state.db)
+    server_member::Entity::delete_many()
+        .filter(server_member::Column::ServerId.eq(&server_id))
+        .exec(&state.db)
         .await
         .ok();
-    sqlx::query("DELETE FROM servers WHERE id = ?")
-        .bind(&server_id)
-        .execute(&state.db)
+    server::Entity::delete_by_id(&server_id)
+        .exec(&state.db)
         .await
         .ok();
 
@@ -340,30 +370,35 @@ pub async fn join_server_by_id(
     let claims = extract_claims(&state.jwt_secret, &headers).map_err(|e| e.0)?;
 
     // Check server exists
-    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE id = ?")
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    let exists = server::Entity::find_by_id(&server_id)
+        .one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if exists == 0 {
+    if exists.is_none() {
         return Err(StatusCode::NOT_FOUND);
     }
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT OR IGNORE INTO server_members (server_id, user_id, joined_at) VALUES (?, ?, ?)",
-    )
-    .bind(&server_id)
-    .bind(&claims.sub)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to join server: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let member = server_member::ActiveModel {
+        server_id: Set(server_id.clone()),
+        user_id: Set(claims.sub.clone()),
+        joined_at: Set(now.clone()),
+    };
+    server_member::Entity::insert(member)
+        .on_conflict(
+            sea_query::OnConflict::columns([server_member::Column::ServerId, server_member::Column::UserId])
+                .do_nothing()
+                .to_owned(),
+        )
+        .do_nothing()
+        .exec(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to join server: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(ServerMember {
         server_id,
@@ -385,10 +420,10 @@ pub async fn leave_server(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    sqlx::query("DELETE FROM server_members WHERE server_id = ? AND user_id = ?")
-        .bind(&server_id)
-        .bind(&claims.sub)
-        .execute(&state.db)
+    server_member::Entity::delete_many()
+        .filter(server_member::Column::ServerId.eq(&server_id))
+        .filter(server_member::Column::UserId.eq(&claims.sub))
+        .exec(&state.db)
         .await
         .ok();
 
@@ -401,41 +436,54 @@ pub async fn list_server_members(
     Path(server_id): Path<String>,
 ) -> Result<Json<Vec<crate::models::MemberInfo>>, StatusCode> {
     // 1. Fetch human members: join server_members + users
-    let rows: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
-        "SELECT u.id, u.display_name, u.avatar_url, sm.joined_at \
-         FROM server_members sm JOIN users u ON u.id = sm.user_id \
-         WHERE sm.server_id = ? ORDER BY sm.joined_at ASC",
-    )
-    .bind(&server_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to list server members: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let member_rows = server_member::Entity::find()
+        .filter(server_member::Column::ServerId.eq(&server_id))
+        .find_also_related(user::Entity)
+        .order_by_asc(server_member::Column::JoinedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list server members: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let rows: Vec<(String, String, Option<String>, String)> = member_rows
+        .into_iter()
+        .filter_map(|(sm, u)| {
+            u.map(|u| (u.id, u.display_name, u.avatar_url, sm.joined_at))
+        })
+        .collect();
 
     // 2. Fetch bots belonging to this server
-    let bots: Vec<(String, String, Option<String>, String)> = sqlx::query_as(
-        "SELECT id, name, avatar_url, created_at FROM bots WHERE server_id = ? ORDER BY created_at ASC",
-    )
-    .bind(&server_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let bot_rows = bot::Entity::find()
+        .filter(bot::Column::ServerId.eq(&server_id))
+        .order_by_asc(bot::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let bots: Vec<(String, String, Option<String>, String)> = bot_rows
+        .into_iter()
+        .map(|b| (b.id, b.name, b.avatar_url, b.created_at))
+        .collect();
 
     // 3. Get all online user IDs for presence
     let online_ids = state.get_online_user_ids().await;
 
     // 4. Fetch role assignments for all users in this server
-    let role_assignments: Vec<(String, String, String, Option<String>, i64)> = sqlx::query_as(
-        "SELECT ur.user_id, r.id, r.name, r.color, r.position \
-         FROM user_roles ur JOIN roles r ON r.id = ur.role_id \
-         WHERE r.server_id = ?",
-    )
-    .bind(&server_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let role_rows = user_role::Entity::find()
+        .find_also_related(role::Entity)
+        .filter(role::Column::ServerId.eq(&server_id))
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
+
+    let role_assignments: Vec<(String, String, String, Option<String>, i64)> = role_rows
+        .into_iter()
+        .filter_map(|(ur, r)| {
+            r.map(|r| (ur.user_id, r.id, r.name, r.color, r.position))
+        })
+        .collect();
 
     // Build role map: user_id -> Vec<RoleBrief>
     let mut role_map: std::collections::HashMap<String, Vec<crate::models::RoleBrief>> =

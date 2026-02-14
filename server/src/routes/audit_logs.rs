@@ -1,9 +1,11 @@
 use axum::{extract::State, http::{HeaderMap, StatusCode}, Json};
-use crate::AppState;
+use sea_orm::{EntityTrait, QueryOrder, QuerySelect, Set};
+use crate::entities::audit_log;
 use crate::models::{AuditLog, Permissions};
 use crate::routes::auth::extract_claims;
 use crate::routes::roles::user_has_permission;
 use crate::routes::servers::extract_server_id;
+use crate::state::AppState;
 
 pub async fn list_audit_logs(
     State(state): State<AppState>,
@@ -16,19 +18,19 @@ pub async fn list_audit_logs(
 
     let server_id = extract_server_id(&headers);
 
-    let logs: Vec<AuditLog> = sqlx::query_as(
-        "SELECT * FROM audit_logs WHERE server_id = ? ORDER BY created_at DESC LIMIT 100"
-    )
-    .bind(&server_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let logs: Vec<AuditLog> = audit_log::Entity::find()
+        .filter(audit_log::Column::ServerId.eq(&server_id))
+        .order_by_desc(audit_log::Column::CreatedAt)
+        .limit(100)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
 
     Ok(Json(logs))
 }
 
 pub async fn create_audit_log(
-    db: &sqlx::SqlitePool,
+    db: &sea_orm::DatabaseConnection,
     user_id: &str,
     user_name: &str,
     action: &str,
@@ -37,17 +39,19 @@ pub async fn create_audit_log(
     details: Option<&str>,
 ) {
     let id = uuid::Uuid::new_v4().to_string();
-    sqlx::query(
-        "INSERT INTO audit_logs (id, user_id, user_name, action, target_id, target_name, details) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    )
-    .bind(id)
-    .bind(user_id)
-    .bind(user_name)
-    .bind(action)
-    .bind(target_id)
-    .bind(target_name)
-    .bind(details)
-    .execute(db)
-    .await
-    .ok();
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let log = audit_log::ActiveModel {
+        id: Set(id),
+        user_id: Set(user_id.to_string()),
+        user_name: Set(user_name.to_string()),
+        action: Set(action.to_string()),
+        target_id: Set(target_id.map(|s| s.to_string())),
+        target_name: Set(target_name.map(|s| s.to_string())),
+        details: Set(details.map(|s| s.to_string())),
+        created_at: Set(now),
+        server_id: Set("default".to_string()),
+    };
+
+    let _ = audit_log::Entity::insert(log).exec(db).await;
 }

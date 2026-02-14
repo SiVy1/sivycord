@@ -4,9 +4,11 @@ use axum::{
     Json,
 };
 use rand::Rng;
+use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::entities::{bot, channel, message};
 use crate::models::Bot;
 use crate::routes::auth;
 use crate::state::AppState;
@@ -63,17 +65,21 @@ pub async fn create_bot(
     let token = generate_bot_token();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT INTO bots (id, name, owner_id, token, permissions, created_at) VALUES (?, ?, ?, ?, 0, ?)",
-    )
-    .bind(&bot_id)
-    .bind(&name)
-    .bind(&claims.sub)
-    .bind(&token)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let new_bot = bot::ActiveModel {
+        id: Set(bot_id.clone()),
+        name: Set(name.clone()),
+        avatar_url: Set(None),
+        owner_id: Set(claims.sub.clone()),
+        token: Set(token.clone()),
+        permissions: Set(0),
+        created_at: Set(now.clone()),
+        server_id: Set("default".to_string()),
+    };
+
+    bot::Entity::insert(new_bot)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     let bot = Bot {
         id: bot_id,
@@ -96,12 +102,16 @@ pub async fn list_bots(
 ) -> Result<Json<Vec<Bot>>, (StatusCode, String)> {
     auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let bots = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots ORDER BY created_at DESC",
-    )
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let mut bots: Vec<Bot> = bot::Entity::find()
+        .order_by_desc(bot::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    // Mask tokens
+    for b in &mut bots {
+        b.token = String::new();
+    }
 
     Ok(Json(bots))
 }
@@ -114,16 +124,14 @@ pub async fn get_bot(
 ) -> Result<Json<Bot>, (StatusCode, String)> {
     auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let bot = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
-    )
-    .bind(&bot_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
+    let mut b = bot::Entity::find_by_id(&bot_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
 
-    Ok(Json(bot))
+    b.token = String::new();
+    Ok(Json(b))
 }
 
 /// PUT /api/bots/:bot_id — update bot name or permissions (owner only)
@@ -135,14 +143,11 @@ pub async fn update_bot(
 ) -> Result<Json<Bot>, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let existing = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
-    )
-    .bind(&bot_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
+    let existing = bot::Entity::find_by_id(&bot_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
 
     if existing.owner_id != claims.sub {
         return Err((StatusCode::FORBIDDEN, "Only the bot owner can update it".into()));
@@ -155,11 +160,11 @@ pub async fn update_bot(
 
     let new_perms = req.permissions.unwrap_or(existing.permissions);
 
-    sqlx::query("UPDATE bots SET name = ?, permissions = ? WHERE id = ?")
-        .bind(&new_name)
-        .bind(new_perms)
-        .bind(&bot_id)
-        .execute(&state.db)
+    bot::Entity::update_many()
+        .col_expr(bot::Column::Name, Expr::value(&new_name))
+        .col_expr(bot::Column::Permissions, Expr::value(new_perms))
+        .filter(bot::Column::Id.eq(&bot_id))
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -183,22 +188,18 @@ pub async fn delete_bot(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let existing = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
-    )
-    .bind(&bot_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
+    let existing = bot::Entity::find_by_id(&bot_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
 
     if existing.owner_id != claims.sub {
         return Err((StatusCode::FORBIDDEN, "Only the bot owner can delete it".into()));
     }
 
-    sqlx::query("DELETE FROM bots WHERE id = ?")
-        .bind(&bot_id)
-        .execute(&state.db)
+    bot::Entity::delete_by_id(&bot_id)
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -213,14 +214,11 @@ pub async fn regenerate_bot_token(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let existing = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
-    )
-    .bind(&bot_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
+    let existing = bot::Entity::find_by_id(&bot_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "Bot not found".into()))?;
 
     if existing.owner_id != claims.sub {
         return Err((StatusCode::FORBIDDEN, "Only the bot owner can regenerate the token".into()));
@@ -228,10 +226,10 @@ pub async fn regenerate_bot_token(
 
     let new_token = generate_bot_token();
 
-    sqlx::query("UPDATE bots SET token = ? WHERE id = ?")
-        .bind(&new_token)
-        .bind(&bot_id)
-        .execute(&state.db)
+    bot::Entity::update_many()
+        .col_expr(bot::Column::Token, Expr::value(&new_token))
+        .filter(bot::Column::Id.eq(&bot_id))
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
@@ -255,13 +253,10 @@ pub async fn bot_send_message(
     }
 
     // Verify channel exists
-    let channel_exists: Option<(String,)> = sqlx::query_as(
-        "SELECT id FROM channels WHERE id = ?",
-    )
-    .bind(&req.channel_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let channel_exists = channel::Entity::find_by_id(&req.channel_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     if channel_exists.is_none() {
         return Err((StatusCode::NOT_FOUND, "Channel not found".into()));
@@ -271,19 +266,20 @@ pub async fn bot_send_message(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let bot_user_name = bot.name.clone();
 
-    sqlx::query(
-        "INSERT INTO messages (id, channel_id, user_id, user_name, avatar_url, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    )
-    .bind(&msg_id)
-    .bind(&req.channel_id)
-    .bind(&bot.id)
-    .bind(&bot_user_name)
-    .bind(&bot.avatar_url)
-    .bind(&content)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let new_msg = message::ActiveModel {
+        id: Set(msg_id.clone()),
+        channel_id: Set(req.channel_id.clone()),
+        user_id: Set(bot.id.clone()),
+        user_name: Set(bot_user_name.clone()),
+        avatar_url: Set(bot.avatar_url.clone()),
+        content: Set(content.clone()),
+        created_at: Set(now.clone()),
+    };
+
+    message::Entity::insert(new_msg)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     // Broadcast via WS channel
     let broadcast_msg = crate::models::WsServerMessage::NewMessage {
@@ -324,14 +320,12 @@ pub async fn extract_bot(
         "Invalid Authorization format. Use: Bot <token>".into(),
     ))?;
 
-    let bot = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, token, permissions, created_at, server_id FROM bots WHERE token = ?",
-    )
-    .bind(token)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::UNAUTHORIZED, "Invalid bot token".into()))?;
+    let b = bot::Entity::find()
+        .filter(bot::Column::Token.eq(token))
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::UNAUTHORIZED, "Invalid bot token".into()))?;
 
-    Ok(bot)
+    Ok(b)
 }

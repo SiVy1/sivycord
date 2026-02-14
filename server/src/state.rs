@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use dashmap::DashMap;
-use sqlx::SqlitePool;
+use sea_orm::DatabaseConnection;
 use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 
@@ -57,7 +57,7 @@ impl RateLimiter {
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
-    pub db: SqlitePool,
+    pub db: DatabaseConnection,
     /// Per-channel broadcast senders (for text + voice signaling)
     pub channels: Arc<DashMap<String, broadcast::Sender<WsServerMessage>>>,
     /// Number of connected WebSocket clients
@@ -79,7 +79,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new(db: SqlitePool, jwt_secret: String, external_host: String, external_port: u16) -> Self {
+    pub fn new(db: DatabaseConnection, jwt_secret: String, external_host: String, external_port: u16) -> Self {
         let (global_tx, _) = broadcast::channel(1024);
         Self {
             db,

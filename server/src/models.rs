@@ -1,110 +1,23 @@
 use serde::{Deserialize, Serialize};
 
-// ─── Database Models ───
+// ─── Re-export entity models for backward compatibility ───
+// Route handlers now use entities directly (e.g., entities::channel::Model).
+// The types below are kept for API request/response DTOs and non-DB types.
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Channel {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub position: i64,
-    pub created_at: String,
-    #[serde(default = "default_channel_type")]
-    pub channel_type: String,
-    #[serde(default)]
-    pub encrypted: bool,
-    #[serde(default = "default_server_id")]
-    pub server_id: String,
-}
-
-fn default_server_id() -> String {
-    "default".to_string()
-}
-
-fn default_channel_type() -> String {
-    "text".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Message {
-    pub id: String,
-    pub channel_id: String,
-    pub user_id: String,
-    pub user_name: String,
-    pub avatar_url: Option<String>,
-    pub content: String,
-    pub created_at: String,
-}
-
-// ─── Bots & Webhooks ───
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Bot {
-    pub id: String,
-    pub name: String,
-    pub avatar_url: Option<String>,
-    pub owner_id: String,
-    pub token: String,
-    pub permissions: i64,
-    pub created_at: String,
-    #[serde(default = "default_server_id")]
-    pub server_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Webhook {
-    pub id: String,
-    pub channel_id: String,
-    pub name: String,
-    pub avatar_url: Option<String>,
-    pub token: String,
-    pub created_by: String,
-    pub created_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct InviteCode {
-    pub code: String,
-    pub created_at: String,
-    pub uses: i64,
-    pub max_uses: Option<i64>,
-    #[serde(default = "default_server_id")]
-    pub server_id: String,
-}
-
-// ─── E2E Encryption ───
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct UserPublicKey {
-    pub user_id: String,
-    pub public_key: String,
-    pub key_type: String,
-    pub created_at: String,
-}
-
-// ─── Federation ───
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct FederationPeer {
-    pub id: String,
-    pub name: String,
-    pub host: String,
-    pub port: i64,
-    pub shared_secret: String,
-    pub status: String,
-    pub direction: String,
-    pub created_at: String,
-    pub last_seen: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct FederatedChannel {
-    pub id: String,
-    pub local_channel_id: String,
-    pub peer_id: String,
-    pub remote_channel_id: String,
-    pub created_at: String,
-}
+// Aliases to entity models for routes that still reference the old names
+pub use crate::entities::channel::Model as Channel;
+pub use crate::entities::message::Model as Message;
+pub use crate::entities::bot::Model as Bot;
+pub use crate::entities::webhook::Model as Webhook;
+pub use crate::entities::invite_code::Model as InviteCode;
+pub use crate::entities::user_key::Model as UserPublicKey;
+pub use crate::entities::federation_peer::Model as FederationPeer;
+pub use crate::entities::federated_channel::Model as FederatedChannel;
+pub use crate::entities::role::Model as Role;
+pub use crate::entities::audit_log::Model as AuditLog;
+pub use crate::entities::ban::Model as Ban;
+pub use crate::entities::server::Model as Server;
+pub use crate::entities::server_member::Model as ServerMember;
 
 // ─── Permissions ───
 // SYNC NOTE: Bit positions must match app/src/types.ts PERMISSION_DEFS.
@@ -188,17 +101,11 @@ impl Permissions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Role {
-    pub id: String,
-    pub name: String,
-    pub color: Option<String>,
-    pub position: i64,
-    pub permissions: i64,
-    pub created_at: String,
-    #[serde(default = "default_server_id")]
-    pub server_id: String,
+fn default_channel_type() -> String {
+    "text".to_string()
 }
+
+// Role is re-exported from entities above
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserRole {
@@ -265,7 +172,7 @@ pub struct JoinResponse {
     pub server_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ServerInfo {
     pub name: String,
     pub description: String,
@@ -285,26 +192,7 @@ pub struct UpdateServerRequest {
     pub sound_chance: Option<i64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct AuditLog {
-    pub id: String,
-    pub user_id: String,
-    pub user_name: String,
-    pub action: String,
-    pub target_id: Option<String>,
-    pub target_name: Option<String>,
-    pub details: Option<String>,
-    pub created_at: String,    #[serde(default = "default_server_id")]
-    pub server_id: String,}
-
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Ban {
-    pub user_id: String,
-    pub user_name: String,
-    pub reason: Option<String>,
-    pub banned_by: String,
-    pub created_at: String,    #[serde(default = "default_server_id")]
-    pub server_id: String,}
+// AuditLog and Ban are re-exported from entities above
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BanRequest {
@@ -500,26 +388,7 @@ pub struct VoicePeer {
 
 // ─── Multi-Server (Guild) ───
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Server {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub icon_url: Option<String>,
-    pub owner_id: String,
-    pub join_sound_url: Option<String>,
-    pub leave_sound_url: Option<String>,
-    pub sound_chance: i64,
-    pub created_at: String,
-    pub updated_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
-pub struct ServerMember {
-    pub server_id: String,
-    pub user_id: String,
-    pub joined_at: String,
-}
+// Server and ServerMember are re-exported from entities above
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateServerRequest {

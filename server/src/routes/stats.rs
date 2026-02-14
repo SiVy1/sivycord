@@ -1,4 +1,6 @@
 use axum::{extract::State, http::HeaderMap, Json};
+use sea_orm::{EntityTrait, QuerySelect, ColumnTrait, QueryFilter, JoinType, RelationTrait};
+use crate::entities::{server_member, message, channel, role, invite_code};
 use crate::models::ServerStats;
 use crate::routes::servers::extract_server_id;
 use crate::state::AppState;
@@ -9,37 +11,37 @@ pub async fn get_server_stats(
 ) -> Json<ServerStats> {
     let server_id = extract_server_id(&headers);
 
-    let total_users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM server_members WHERE server_id = ?")
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    let total_users = server_member::Entity::find()
+        .filter(server_member::Column::ServerId.eq(&server_id))
+        .count(&state.db)
         .await
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let total_messages: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM messages m INNER JOIN channels c ON m.channel_id = c.id WHERE c.server_id = ?",
-    )
-    .bind(&server_id)
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or(0);
-
-    let total_channels: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM channels WHERE server_id = ?")
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    // Count messages in channels belonging to this server
+    let total_messages = message::Entity::find()
+        .join(JoinType::InnerJoin, message::Relation::Channel.def())
+        .filter(channel::Column::ServerId.eq(&server_id))
+        .count(&state.db)
         .await
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let total_roles: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE server_id = ?")
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    let total_channels = channel::Entity::find()
+        .filter(channel::Column::ServerId.eq(&server_id))
+        .count(&state.db)
         .await
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let total_invites: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM invite_codes WHERE server_id = ?")
-        .bind(&server_id)
-        .fetch_one(&state.db)
+    let total_roles = role::Entity::find()
+        .filter(role::Column::ServerId.eq(&server_id))
+        .count(&state.db)
         .await
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
+
+    let total_invites = invite_code::Entity::find()
+        .filter(invite_code::Column::ServerId.eq(&server_id))
+        .count(&state.db)
+        .await
+        .unwrap_or(0) as i64;
 
     Json(ServerStats {
         total_users,

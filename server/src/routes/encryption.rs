@@ -3,8 +3,10 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use sea_orm::*;
 use serde::{Deserialize, Serialize};
 
+use crate::entities::{channel, message, user_key};
 use crate::models::UserPublicKey;
 use crate::routes::auth;
 use crate::state::AppState;
@@ -45,16 +47,25 @@ pub async fn upload_key(
 
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
-        "INSERT INTO user_keys (user_id, public_key, key_type, created_at) VALUES (?, ?, 'x25519', ?)
-         ON CONFLICT(user_id, key_type) DO UPDATE SET public_key = excluded.public_key, created_at = excluded.created_at",
-    )
-    .bind(&claims.sub)
-    .bind(&pk)
-    .bind(&now)
-    .execute(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    // Delete then insert for cross-DB upsert
+    user_key::Entity::delete_many()
+        .filter(user_key::Column::UserId.eq(&claims.sub))
+        .filter(user_key::Column::KeyType.eq("x25519"))
+        .exec(&state.db)
+        .await
+        .ok();
+
+    let new_key = user_key::ActiveModel {
+        user_id: Set(claims.sub.clone()),
+        public_key: Set(pk),
+        key_type: Set("x25519".to_string()),
+        created_at: Set(now),
+    };
+
+    user_key::Entity::insert(new_key)
+        .exec(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
     Ok(StatusCode::OK)
 }
@@ -64,14 +75,13 @@ pub async fn get_user_key(
     State(state): State<AppState>,
     Path(user_id): Path<String>,
 ) -> Result<Json<UserPublicKey>, (StatusCode, String)> {
-    let key = sqlx::query_as::<_, UserPublicKey>(
-        "SELECT user_id, public_key, key_type, created_at FROM user_keys WHERE user_id = ? AND key_type = 'x25519'",
-    )
-    .bind(&user_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .ok_or((StatusCode::NOT_FOUND, "No public key found for user".into()))?;
+    let key = user_key::Entity::find()
+        .filter(user_key::Column::UserId.eq(&user_id))
+        .filter(user_key::Column::KeyType.eq("x25519"))
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+        .ok_or((StatusCode::NOT_FOUND, "No public key found for user".into()))?;
 
     Ok(Json(key))
 }
@@ -85,30 +95,39 @@ pub async fn get_channel_keys(
     auth::extract_claims(&state.jwt_secret, &headers)?;
 
     // Check if channel is encrypted
-    let encrypted: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(encrypted, 0) FROM channels WHERE id = ?",
-    )
-    .bind(&channel_id)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
-    .unwrap_or(0);
+    let ch = channel::Entity::find_by_id(&channel_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
-    // Get keys of all users who posted in this channel
-    let keys = sqlx::query_as::<_, UserPublicKey>(
-        "SELECT DISTINCT uk.user_id, uk.public_key, uk.key_type, uk.created_at
-         FROM user_keys uk
-         INNER JOIN messages m ON m.user_id = uk.user_id
-         WHERE m.channel_id = ? AND uk.key_type = 'x25519'",
-    )
-    .bind(&channel_id)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    let encrypted = ch.map(|c| c.encrypted).unwrap_or(false);
+
+    // Get distinct user_ids who posted in this channel
+    let user_ids: Vec<String> = message::Entity::find()
+        .filter(message::Column::ChannelId.eq(&channel_id))
+        .select_only()
+        .column(message::Column::UserId)
+        .distinct()
+        .into_tuple()
+        .all(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    // Get keys for those users
+    let keys: Vec<UserPublicKey> = if user_ids.is_empty() {
+        vec![]
+    } else {
+        user_key::Entity::find()
+            .filter(user_key::Column::UserId.is_in(user_ids))
+            .filter(user_key::Column::KeyType.eq("x25519"))
+            .all(&state.db)
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
+    };
 
     Ok(Json(ChannelKeysResponse {
         channel_id,
-        encrypted: encrypted != 0,
+        encrypted,
         keys,
     }))
 }
@@ -132,10 +151,10 @@ pub async fn set_channel_encrypted(
         return Err((StatusCode::FORBIDDEN, "MANAGE_CHANNELS required".into()));
     }
 
-    sqlx::query("UPDATE channels SET encrypted = ? WHERE id = ?")
-        .bind(if req.encrypted { 1i64 } else { 0i64 })
-        .bind(&channel_id)
-        .execute(&state.db)
+    channel::Entity::update_many()
+        .col_expr(channel::Column::Encrypted, Expr::value(req.encrypted))
+        .filter(channel::Column::Id.eq(&channel_id))
+        .exec(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 

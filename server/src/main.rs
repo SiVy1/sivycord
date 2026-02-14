@@ -1,4 +1,5 @@
 mod db;
+mod entities;
 mod models;
 mod routes;
 mod state;
@@ -24,8 +25,12 @@ struct Args {
     #[arg(short, long, env = "PORT", default_value_t = 3000)]
     port: u16,
 
-    /// Database path
-    #[arg(short, long, env = "DATABASE_PATH", default_value = "sivyspeak.db")]
+    /// Database URL (sqlite:<path>?mode=rwc, postgres://..., mysql://...)
+    #[arg(short, long, env = "DATABASE_URL")]
+    db_url: Option<String>,
+
+    /// Database path (legacy, for SQLite — overridden by --db-url)
+    #[arg(long, env = "DATABASE_PATH", default_value = "sivyspeak.db")]
     db_path: String,
 
     /// External host for invite tokens (e.g. your domain)
@@ -73,15 +78,34 @@ async fn main() {
     // Ensure uploads directory exists
     tokio::fs::create_dir_all("./uploads").await.ok();
 
-    tracing::info!("Initializing database at {db_path}");
-    let pool = db::init_pool(&db_path).await;
+    // Build database URL: prefer --db-url, fall back to --db-path (SQLite)
+    let db_url = args.db_url.unwrap_or_else(|| format!("sqlite:{}?mode=rwc", args.db_path));
 
+    tracing::info!("Initializing database: {}", db_url.split('?').next().unwrap_or(&db_url));
+    let db = db::init_db(&db_url).await;
+
+    // Seed default invite code (ignore conflict)
     let invite_code = token::generate_invite_code();
-    sqlx::query("INSERT OR IGNORE INTO invite_codes (code, max_uses, server_id) VALUES (?, NULL, 'default')")
-        .bind(&invite_code)
-        .execute(&pool)
-        .await
-        .ok();
+    {
+        use sea_orm::{EntityTrait, Set};
+        use entities::invite_code;
+        let seed = invite_code::ActiveModel {
+            code: Set(invite_code.clone()),
+            created_at: Set(chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string()),
+            uses: Set(0),
+            max_uses: Set(None),
+            server_id: Set("default".to_string()),
+        };
+        let _ = invite_code::Entity::insert(seed)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(invite_code::Column::Code)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .do_nothing()
+            .exec(&db)
+            .await;
+    }
 
     let conn_token = models::ConnectionToken {
         host: args.external_host.clone(),
@@ -91,7 +115,7 @@ async fn main() {
     let encoded_token = token::encode_token(&conn_token);
 
     let state = AppState::new(
-        pool.clone(),
+        db.clone(),
         jwt_secret,
         args.external_host,
         args.external_port.unwrap_or(port),
@@ -99,8 +123,9 @@ async fn main() {
 
     // --- Setup Key: generate if no users exist ---
     {
-        let user_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(&pool)
+        use sea_orm::EntityTrait;
+        let user_count = entities::user::Entity::find()
+            .count(&db)
             .await
             .unwrap_or(0);
 
