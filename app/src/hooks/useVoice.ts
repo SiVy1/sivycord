@@ -9,7 +9,7 @@ import {
   setWs, setLocalStream, setDisplayStream, setLocalUserId, setCurrentChannelId,
   setIsMutedLocal, setIsDeafenedLocal,
   playToggleSound, playVoiceSound, broadcastTalkingState,
-  startVAD, stopVAD, createPeerConnection, cleanupAll,
+  startVAD, stopVAD, createPeerConnection, cleanupAll, negotiateWith,
 } from "./voiceHelpers";
 
 // ─── The hook ───
@@ -351,17 +351,23 @@ export function useVoice() {
     displayStream?.getTracks().forEach((t) => t.stop());
     setDisplayStream(null);
     useStore.getState().removeScreenShare(localUserId);
+    const peersToRenegotiate: string[] = [];
     peerConnections.forEach((pc, remoteUserId) => {
       const sender = screenTrackSenders.get(remoteUserId);
       if (sender) {
         try {
           pc.removeTrack(sender);
+          peersToRenegotiate.push(remoteUserId);
         } catch {
           // ignore
         }
         screenTrackSenders.delete(remoteUserId);
       }
     });
+    // Explicitly renegotiate so remote side drops the video track
+    for (const peerId of peersToRenegotiate) {
+      negotiateWith(peerId);
+    }
   };
 
   const startScreenShare = useCallback(async () => {
@@ -369,20 +375,34 @@ export function useVoice() {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: true,
+        audio: false,
       });
       setDisplayStream(stream);
       useStore.getState().addScreenShare(localUserId, stream);
 
       const videoTrack = stream.getVideoTracks()[0];
+      if (!videoTrack) {
+        setDisplayStream(null);
+        useStore.getState().removeScreenShare(localUserId);
+        return;
+      }
+
+      const peersToNegotiate: string[] = [];
       peerConnections.forEach((pc, remoteUserId) => {
         try {
           const sender = pc.addTrack(videoTrack, stream);
           screenTrackSenders.set(remoteUserId, sender);
+          peersToNegotiate.push(remoteUserId);
         } catch (e) {
-          console.error("Screen track add failed", e);
+          console.error("Screen track add failed for", remoteUserId, e);
         }
       });
+
+      // Explicit renegotiation safety net — onnegotiationneeded may be suppressed
+      // if the peer connection was not in stable state when addTrack was called
+      for (const peerId of peersToNegotiate) {
+        negotiateWith(peerId);
+      }
 
       videoTrack.onended = () => stopScreenShareInternal();
     } catch (err) {

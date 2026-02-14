@@ -16,6 +16,7 @@ export const peerConnections = new Map<string, RTCPeerConnection>();
 export const makingOffer = new Map<string, boolean>();
 export const audioElements = new Map<string, HTMLAudioElement>();
 export const screenTrackSenders = new Map<string, RTCRtpSender>();
+export const pendingNegotiation = new Set<string>();
 
 // VAD (voice activity detection)
 let audioContext: AudioContext | null = null;
@@ -232,6 +233,53 @@ export function stopVAD() {
   isTalkingLocal = false;
 }
 
+// ─── Helper: renegotiate with a peer (safe to call anytime) ───
+export async function negotiateWith(remoteUserId: string) {
+  const pc = peerConnections.get(remoteUserId);
+  const channelId = currentChannelId;
+  if (!pc || !channelId) return;
+  if (makingOffer.get(remoteUserId)) {
+    pendingNegotiation.add(remoteUserId);
+    return;
+  }
+  if (pc.signalingState !== "stable") {
+    pendingNegotiation.add(remoteUserId);
+    return;
+  }
+
+  makingOffer.set(remoteUserId, true);
+  try {
+    const offer = await pc.createOffer();
+    if (pc.signalingState !== "stable") {
+      pendingNegotiation.add(remoteUserId);
+      return;
+    }
+    await pc.setLocalDescription(offer);
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "voice_offer",
+          channel_id: channelId,
+          target_user_id: remoteUserId,
+          from_user_id: localUserId,
+          sdp: JSON.stringify(pc.localDescription),
+        }),
+      );
+    }
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.name === "InvalidStateError" || err.name === "InvalidAccessError")
+    ) {
+      pendingNegotiation.add(remoteUserId);
+      return;
+    }
+    console.error("Negotiation failed", err);
+  } finally {
+    makingOffer.set(remoteUserId, false);
+  }
+}
+
 // ─── Helper: create peer connection ───
 export function createPeerConnection(
   remoteUserId: string,
@@ -255,9 +303,8 @@ export function createPeerConnection(
   }
 
   pc.ontrack = (event) => {
-    const stream = event.streams[0];
-    if (!stream) return;
     const track = event.track;
+    const stream = event.streams[0] ?? new MediaStream([track]);
     if (track.kind === "audio") {
       let audio = audioElements.get(remoteUserId);
       if (!audio) {
@@ -270,8 +317,17 @@ export function createPeerConnection(
       audio.srcObject = stream;
     } else if (track.kind === "video") {
       useStore.getState().addScreenShare(remoteUserId, stream);
-      track.onended = () => {
+      const cleanupScreen = () => {
         useStore.getState().removeScreenShare(remoteUserId);
+      };
+      track.onended = cleanupScreen;
+      // Fallback: track muted when remote stops sharing before renegotiation completes
+      track.onmute = () => {
+        setTimeout(() => {
+          if (track.readyState === "ended" || track.muted) {
+            cleanupScreen();
+          }
+        }, 3000);
       };
     }
   };
@@ -289,56 +345,15 @@ export function createPeerConnection(
       );
     }
   };
-  pc.onnegotiationneeded = async () => {
-    try {
-      if (makingOffer.get(remoteUserId)) return;
+  pc.onnegotiationneeded = () => {
+    negotiateWith(remoteUserId);
+  };
 
-      // Check if we're in a valid state to negotiate
-      if (pc!.signalingState !== "stable") {
-        console.warn(`Negotiation skipped, state: ${pc!.signalingState}`);
-        return;
-      }
-
-      makingOffer.set(remoteUserId, true);
-
-      // Double-check state before creating offer
-      if (pc!.signalingState !== "stable") {
-        makingOffer.set(remoteUserId, false);
-        return;
-      }
-
-      const offer = await pc!.createOffer();
-
-      // Check state again before setting local description
-      if (pc!.signalingState !== "stable") {
-        makingOffer.set(remoteUserId, false);
-        return;
-      }
-
-      await pc!.setLocalDescription(offer);
-
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify({
-            type: "voice_offer",
-            channel_id: channelId,
-            target_user_id: remoteUserId,
-            from_user_id: localUserId,
-            sdp: JSON.stringify(pc!.localDescription),
-          }),
-        );
-      }
-    } catch (err) {
-      if (
-        err instanceof Error &&
-        (err.name === "InvalidStateError" || err.name === "InvalidAccessError")
-      ) {
-        console.warn("Negotiation error (ignored):", err.message);
-        return;
-      }
-      console.error("Negotiation failed", err);
-    } finally {
-      makingOffer.set(remoteUserId, false);
+  // Retry pending negotiations when signaling returns to stable
+  pc.onsignalingstatechange = () => {
+    if (pc!.signalingState === "stable" && pendingNegotiation.has(remoteUserId)) {
+      pendingNegotiation.delete(remoteUserId);
+      setTimeout(() => negotiateWith(remoteUserId), 50);
     }
   };
 
@@ -386,6 +401,7 @@ export function cleanupAll() {
   });
   audioElements.clear();
   screenTrackSenders.clear();
+  pendingNegotiation.clear();
 
   stopVAD();
   broadcastTalkingState(false);
