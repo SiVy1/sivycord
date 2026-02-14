@@ -85,6 +85,7 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
         is_online: onlineSet.has(id.node_id),
         is_bot: false,
         roles: [],
+        joined_at: new Date().toISOString(),
       }));
 
       // Sort: online first

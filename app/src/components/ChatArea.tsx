@@ -19,9 +19,15 @@ import {
   generateKeyPair,
   hasLocalKeyPair,
   getLocalPublicKey,
-  encryptChannelMessage,
+  encryptWithSenderKey,
+  decryptWithSenderKey,
   decryptChannelMessage,
   isChannelEncrypted as isMsgChannelEncrypted,
+  isSenderKeyDistribution,
+  isSenderKeyMessage,
+  processSenderKeyDistribution,
+  createSenderKeyDistribution,
+  hasSenderKey,
 } from "../lib/crypto";
 
 const MAX_MESSAGE_LENGTH = 2000;
@@ -263,6 +269,35 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
         channelKeysRef.current = participants;
         setE2eEnabled(true);
         setE2eReady(true);
+
+        // Distribute our sender key to channel participants if they don't have it yet
+        if (participants.length > 1) {
+          const hasKey = await hasSenderKey(activeChannelId, userId);
+          if (!hasKey || true) {
+            // Always distribute on channel join so new members get it
+            try {
+              const distribution = await createSenderKeyDistribution(
+                userId,
+                activeChannelId,
+                participants,
+              );
+              // Send distribution via WS if connected
+              const ws = wsRef.current;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                const msg: WsClientMessage = {
+                  type: "send_message",
+                  channel_id: activeChannelId,
+                  content: distribution,
+                  user_id: userId,
+                  user_name: displayName || "Anonymous",
+                };
+                ws.send(JSON.stringify(msg));
+              }
+            } catch (err) {
+              console.warn("Failed to distribute sender key:", err);
+            }
+          }
+        }
       } catch (err) {
         console.error("E2E setup failed:", err);
         setE2eEnabled(false);
@@ -315,8 +350,50 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
 
           let content = data.content || "";
 
+          // Handle sender key distribution messages (hidden from UI)
+          if (isSenderKeyDistribution(content)) {
+            const myUserId = activeServer?.config.userId;
+            const senderKey = channelKeysRef.current.find((k) => k.user_id === data.user_id);
+            if (myUserId && senderKey) {
+              processSenderKeyDistribution(content, myUserId, senderKey.public_key)
+                .catch((err) => console.warn("Failed to process SK distribution:", err));
+            }
+            return; // don't show distribution messages in chat
+          }
+
           // Attempt E2E decryption if the message is encrypted
+          if (isSenderKeyMessage(content)) {
+            // New sender-key encrypted message — O(1) decrypt
+            decryptWithSenderKey(content, data.channel_id)
+              .then((decrypted) => {
+                addMessage({
+                  id: data.id,
+                  channelId: data.channel_id,
+                  userId: data.user_id,
+                  userName: data.user_name || "Unknown",
+                  avatarUrl: data.avatar_url,
+                  content: decrypted,
+                  createdAt: data.created_at || "",
+                  isBot: data.is_bot,
+                });
+              })
+              .catch(() => {
+                addMessage({
+                  id: data.id,
+                  channelId: data.channel_id,
+                  userId: data.user_id,
+                  userName: data.user_name || "Unknown",
+                  avatarUrl: data.avatar_url,
+                  content: "🔒 [Encrypted message — cannot decrypt]",
+                  createdAt: data.created_at || "",
+                  isBot: data.is_bot,
+                });
+              });
+            return;
+          }
+
           if (isMsgChannelEncrypted(content)) {
+            // Legacy per-message wrapped key format
             const myUserId = activeServer?.config.userId;
             const senderKey = channelKeysRef.current.find((k) => k.user_id === data.user_id);
             if (myUserId && senderKey) {
@@ -599,10 +676,11 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
     let finalContent = trimmed;
     if (e2eEnabled && e2eReady && channelKeysRef.current.length > 0) {
       try {
-        finalContent = await encryptChannelMessage(
+        const userId = activeServer.config.userId || "unknown";
+        finalContent = await encryptWithSenderKey(
           trimmed,
-          activeServer.config.userId || "unknown",
-          channelKeysRef.current,
+          userId,
+          activeChannelId,
         );
       } catch (err) {
         console.error("E2E encryption failed, sending plaintext:", err);

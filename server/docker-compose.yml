@@ -2,14 +2,19 @@ services:
   server:
     build: .
     ports:
-      - "3000:3000"
+      - "${PORT:-3000}:${PORT:-3000}"
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
+    env_file:
+      - .env
     environment:
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - DATABASE_PATH=/app/data/sivyspeak.db
-      - EXTERNAL_HOST=sivyspeak.tsuki.com.pl # Use your domain here
-      - EXTERNAL_PORT=443 # 443 for HTTPS/SSL
-      - JWT_SECRET=random_secret_here # Ideally set this in .env
-    restart: always
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/api/server"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

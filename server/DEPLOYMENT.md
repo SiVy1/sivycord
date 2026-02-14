@@ -1,18 +1,45 @@
 # Deployment & Setup Guide — SivySpeak
 
+## Quick Start (any OS)
+
+```bash
+# 1. Copy .env.example to .env and edit it
+cp .env.example .env
+
+# 2. Run with Docker (easiest)
+docker-compose up -d
+
+# 3. Check logs for the setup key
+docker-compose logs | grep setup
+```
+
+That's it! The server is running on port 3000.
+
+---
+
 ## 🛠️ Command-Line Arguments
 
 | Argument          | Environment Variable | Description                                           |
 | :---------------- | :------------------- | :---------------------------------------------------- |
 | `--port`          | `PORT`               | Port to listen on (default: `3000`)                   |
-| `--db-path`       | `DATABASE_PATH`      | Path to the SQLite database (default: `sivyspeak.db`) |
+| `--db-url`        | `DATABASE_URL`       | Database URL: `sqlite:`, `postgres://`, `mysql://`    |
+| `--db-path`       | `DATABASE_PATH`      | SQLite file path (legacy, overridden by `--db-url`)   |
 | `--external-host` | `EXTERNAL_HOST`      | External domain/IP for invite tokens (e.g. `sync.pl`) |
 | `--external-port` | `EXTERNAL_PORT`      | External port for invite tokens (e.g. `443`)          |
 
-**Example (Windows):**
+### Database Support
 
-```powershell
-.\sivyspeak-server.exe --port 8080
+SivySpeak supports **SQLite**, **PostgreSQL**, and **MySQL** via SeaORM:
+
+```bash
+# SQLite (default, zero-config)
+./sivyspeak-server
+
+# PostgreSQL
+./sivyspeak-server --db-url "postgres://user:pass@localhost/sivyspeak"
+
+# MySQL
+./sivyspeak-server --db-url "mysql://user:pass@localhost/sivyspeak"
 ```
 
 ---
@@ -104,11 +131,40 @@ The script preserves your existing `.env` and data.
 If you prefer Docker, a Dockerfile and docker-compose.yml are included.
 
 ```bash
+cp .env.example .env       # edit with your domain/settings
 docker-compose up -d --build
-docker-compose logs    # check for setup key
+docker-compose logs        # check for setup key
 ```
 
-> Note: Docker requires more resources for building due to Rust compilation inside a container.
+The Dockerfile uses a cached dependency layer so rebuilds after code changes are fast.
+Includes a healthcheck to auto-restart on failure.
+
+---
+
+## 🪟 Windows Deployment
+
+### Option A: PowerShell Installer (recommended)
+
+1. Open PowerShell **as Administrator**
+2. Run:
+   ```powershell
+   cd server
+   .\install.ps1 -ExternalHost "yourdomain.com"
+   ```
+3. The installer will:
+   - Install Rust if needed
+   - Build the server from source
+   - Install to `C:\ProgramData\SivySpeak`
+   - Start the server in the background
+4. Check the server output for the setup key.
+
+### Option B: Manual
+
+```powershell
+cd server
+cargo build --release
+.\target\release\sivyspeak-server.exe --port 3000 --external-host yourdomain.com
+```
 
 ---
 
