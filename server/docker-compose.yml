@@ -9,7 +9,6 @@ services:
     environment:
       - PORT=3000
       - DATABASE_PATH=/app/data/sivyspeak.db
-      - ADMIN_NICK=Admin # Change this for the first run to create an admin
       - EXTERNAL_HOST=sivyspeak.tsuki.com.pl # Use your domain here
       - EXTERNAL_PORT=443 # 443 for HTTPS/SSL
       - JWT_SECRET=random_secret_here # Ideally set this in .env
