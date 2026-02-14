@@ -93,6 +93,7 @@ function CreateRoleModal({
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${server.config.authToken}`,
+            "X-Server-Id": server.config.guildId || "default",
           },
           body: JSON.stringify({
             name: name.trim(),
@@ -225,6 +226,7 @@ function EditRoleModal({
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${server.config.authToken}`,
+            "X-Server-Id": server.config.guildId || "default",
           },
           body: JSON.stringify({
             name: name.trim(),
@@ -257,6 +259,7 @@ function EditRoleModal({
           method: "DELETE",
           headers: {
             Authorization: `Bearer ${server.config.authToken}`,
+            "X-Server-Id": server.config.guildId || "default",
           },
         },
       );
@@ -348,6 +351,11 @@ export function RolesTab({ server }: { server: ServerEntry }) {
     try {
       const res = await fetch(
         `${getApiUrl(server.config.host, server.config.port)}/api/roles`,
+        {
+          headers: {
+            "X-Server-Id": server.config.guildId || "default",
+          },
+        },
       );
       const data = await res.json();
       setRoles(data);

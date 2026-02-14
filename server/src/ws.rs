@@ -10,7 +10,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::models::{WsClientMessage, WsServerMessage};
+use crate::models::{Bot, WsClientMessage, WsServerMessage};
 use crate::routes::auth;
 use crate::state::AppState;
 
@@ -22,6 +22,13 @@ const MAX_SUBSCRIPTIONS: usize = 50;
 #[derive(Debug, Deserialize)]
 pub struct WsQuery {
     pub token: Option<String>,
+    pub server_id: Option<String>,
+}
+
+/// Authenticated identity for a WebSocket connection
+enum WsIdentity {
+    User(auth::Claims),
+    Bot(Bot),
 }
 
 pub async fn ws_handler(
@@ -29,26 +36,51 @@ pub async fn ws_handler(
     State(state): State<AppState>,
     Query(query): Query<WsQuery>,
 ) -> impl IntoResponse {
-    // Try to authenticate via JWT token query param
-    let auth_user = query.token.and_then(|t| {
-        auth::decode_jwt(&state.jwt_secret, &t).ok()
-    });
+    // Try to authenticate: first as bot token, then as JWT
+    let identity = if let Some(ref t) = query.token {
+        if t.starts_with("bot.") {
+            // Bot token auth
+            let bot = sqlx::query_as::<_, Bot>(
+                "SELECT id, name, avatar_url, owner_id, token, permissions, created_at, server_id FROM bots WHERE token = ?",
+            )
+            .bind(t)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+            bot.map(WsIdentity::Bot)
+        } else {
+            // JWT user auth
+            auth::decode_jwt(&state.jwt_secret, t)
+                .ok()
+                .map(WsIdentity::User)
+        }
+    } else {
+        None
+    };
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state, auth_user))
+    let server_id = query.server_id.unwrap_or_else(|| "default".to_string());
+
+    ws.on_upgrade(move |socket| handle_socket(socket, state, identity, server_id))
 }
 
 async fn handle_socket(
     socket: WebSocket,
     state: AppState,
-    auth_user: Option<auth::Claims>,
+    identity: Option<WsIdentity>,
+    _server_id: String,
 ) {
     state.inc_online();
 
-    let (user_id, user_name) = match &auth_user {
-        Some(claims) => (claims.sub.clone(), claims.display_name.clone()),
-        None => (Uuid::new_v4().to_string(), "Guest".to_string()),
+    let (user_id, user_name, is_bot_connection) = match &identity {
+        Some(WsIdentity::User(claims)) => (claims.sub.clone(), claims.display_name.clone(), false),
+        Some(WsIdentity::Bot(bot)) => (bot.id.clone(), bot.name.clone(), true),
+        None => (Uuid::new_v4().to_string(), "Guest".to_string(), false),
     };
-    let is_authenticated = auth_user.is_some();
+    let is_authenticated = identity.is_some();
+
+    // Track online presence
+    state.user_online(&user_id).await;
 
     let (mut sender, mut receiver) = socket.split();
     let mut subscribed_channels: HashSet<String> = HashSet::new();
@@ -184,16 +216,20 @@ async fn handle_socket(
                             continue;
                         }
 
-                        let avatar_url: Option<String> = match &auth_user {
-                            Some(claims) => {
-                                // Fetch latest avatar_url from DB
-                                sqlx::query_scalar::<_, Option<String>>("SELECT avatar_url FROM users WHERE id = ?")
-                                    .bind(&claims.sub)
-                                    .fetch_one(&state.db)
-                                    .await
-                                    .unwrap_or(None)
-                            }
-                            None => None,
+                        let avatar_url: Option<String> = if is_bot_connection {
+                            // For bots, get avatar from bots table
+                            sqlx::query_scalar::<_, Option<String>>("SELECT avatar_url FROM bots WHERE id = ?")
+                                .bind(&user_id)
+                                .fetch_one(&state.db)
+                                .await
+                                .unwrap_or(None)
+                        } else {
+                            // For users, get avatar from users table
+                            sqlx::query_scalar::<_, Option<String>>("SELECT avatar_url FROM users WHERE id = ?")
+                                .bind(&user_id)
+                                .fetch_one(&state.db)
+                                .await
+                                .unwrap_or(None)
                         };
 
                         let broadcast_msg = WsServerMessage::NewMessage {
@@ -204,6 +240,7 @@ async fn handle_socket(
                             avatar_url,
                             content: content.clone(),
                             created_at: now,
+                            is_bot: is_bot_connection,
                         };
 
                         let tx = state.get_channel_tx(&channel_id);
@@ -234,7 +271,7 @@ async fn handle_socket(
 
                                 if let Some((host, port, secret, _)) = peer {
                                     let server_name = sqlx::query_scalar::<_, String>(
-                                        "SELECT value FROM server_settings WHERE key = 'server_name'"
+                                        "SELECT name FROM servers WHERE id = 'default'"
                                     )
                                     .fetch_optional(&fed_state.db)
                                     .await
@@ -420,6 +457,9 @@ async fn handle_socket(
             let _ = state.global_tx.send(WsServerMessage::VoicePeerLeft { channel_id, user_id: uid });
         }
     }
+
+    // Mark user/bot as offline
+    state.user_offline(&user_id).await;
 
     state.dec_online();
     send_task.abort();

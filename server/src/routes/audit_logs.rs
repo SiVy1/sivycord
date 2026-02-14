@@ -3,6 +3,7 @@ use crate::AppState;
 use crate::models::{AuditLog, Permissions};
 use crate::routes::auth::extract_claims;
 use crate::routes::roles::user_has_permission;
+use crate::routes::servers::extract_server_id;
 
 pub async fn list_audit_logs(
     State(state): State<AppState>,
@@ -13,9 +14,12 @@ pub async fn list_audit_logs(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    let server_id = extract_server_id(&headers);
+
     let logs: Vec<AuditLog> = sqlx::query_as(
-        "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100"
+        "SELECT * FROM audit_logs WHERE server_id = ? ORDER BY created_at DESC LIMIT 100"
     )
+    .bind(&server_id)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();

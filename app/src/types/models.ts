@@ -19,6 +19,7 @@ export interface Message {
   content: string;
   createdAt: string;
   attachments?: Attachment[];
+  isBot?: boolean;
 }
 
 export interface Attachment {
@@ -45,6 +46,8 @@ export interface ServerConfig {
   joinSoundUrl?: string | null;
   leaveSoundUrl?: string | null;
   soundChance?: number;
+  /** Logical server / guild ID on the physical server (defaults to "default") */
+  guildId?: string;
   p2p?: P2PServerConfig;
 }
 
@@ -140,6 +143,24 @@ export interface BotInfo {
   token: string;
   permissions: number;
   created_at: string;
+}
+
+// ─── Server Member Info (rich data for member list) ───
+export interface MemberInfo {
+  user_id: string;
+  display_name: string;
+  avatar_url: string | null;
+  is_bot: boolean;
+  is_online: boolean;
+  joined_at: string;
+  roles: RoleBrief[];
+}
+
+export interface RoleBrief {
+  id: string;
+  name: string;
+  color: string | null;
+  position: number;
 }
 
 // ─── Webhooks ───

@@ -38,6 +38,7 @@ function ManageUserRolesModal({
             method: "DELETE",
             headers: {
               Authorization: `Bearer ${server.config.authToken}`,
+              "X-Server-Id": server.config.guildId || "default",
             },
           },
         );
@@ -51,6 +52,7 @@ function ManageUserRolesModal({
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${server.config.authToken}`,
+              "X-Server-Id": server.config.guildId || "default",
             },
             body: JSON.stringify({
               user_id: userId,
@@ -138,6 +140,11 @@ export function UsersTab({ server }: { server: ServerEntry }) {
     try {
       const rolesRes = await fetch(
         `${getApiUrl(server.config.host, server.config.port)}/api/roles`,
+        {
+          headers: {
+            "X-Server-Id": server.config.guildId || "default",
+          },
+        },
       );
       const rolesData = await rolesRes.json();
       setRoles(rolesData);
@@ -149,6 +156,11 @@ export function UsersTab({ server }: { server: ServerEntry }) {
           try {
             const userRolesRes = await fetch(
               `${getApiUrl(server.config.host, server.config.port)}/api/users/${user.id}/roles`,
+              {
+                headers: {
+                  "X-Server-Id": server.config.guildId || "default",
+                },
+              },
             );
             roleMap.set(user.id, await userRolesRes.json());
           } catch {
@@ -172,7 +184,12 @@ export function UsersTab({ server }: { server: ServerEntry }) {
     try {
       await fetch(
         `${getApiUrl(server.config.host, server.config.port)}/api/members/${id}/kick`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: {
+            "X-Server-Id": server.config.guildId || "default",
+          },
+        },
       );
       alert("User kicked!");
     } catch (err) {
@@ -188,7 +205,10 @@ export function UsersTab({ server }: { server: ServerEntry }) {
         `${getApiUrl(server.config.host, server.config.port)}/api/members/${id}/ban`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Server-Id": server.config.guildId || "default",
+          },
           body: JSON.stringify({ reason }),
         },
       );

@@ -10,6 +10,11 @@ export function InvitesTab({ server }: { server: ServerEntry }) {
     try {
       const res = await fetch(
         `${getApiUrl(server.config.host, server.config.port)}/api/invites`,
+        {
+          headers: {
+            "X-Server-Id": server.config.guildId || "default",
+          },
+        },
       );
       setInvites(await res.json());
     } catch (err) {
@@ -22,7 +27,12 @@ export function InvitesTab({ server }: { server: ServerEntry }) {
     try {
       await fetch(
         `${getApiUrl(server.config.host, server.config.port)}/api/invites/${code}`,
-        { method: "DELETE" },
+        {
+          method: "DELETE",
+          headers: {
+            "X-Server-Id": server.config.guildId || "default",
+          },
+        },
       );
       fetchInvites();
     } catch (err) {
@@ -94,7 +104,11 @@ export function AuditLogsTab({ server }: { server: ServerEntry }) {
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
 
   useEffect(() => {
-    fetch(`http://${server.config.host}:${server.config.port}/api/audit-logs`)
+    fetch(`${getApiUrl(server.config.host, server.config.port)}/api/audit-logs`, {
+      headers: {
+        "X-Server-Id": server.config.guildId || "default",
+      },
+    })
       .then((res) => res.json())
       .then(setLogs);
   }, [server]);

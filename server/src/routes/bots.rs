@@ -83,6 +83,7 @@ pub async fn create_bot(
         token: token.clone(),
         permissions: 0,
         created_at: now,
+        server_id: "default".to_string(),
     };
 
     Ok((StatusCode::CREATED, Json(CreateBotResponse { bot, token })))
@@ -96,7 +97,7 @@ pub async fn list_bots(
     auth::extract_claims(&state.jwt_secret, &headers)?;
 
     let bots = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at FROM bots ORDER BY created_at DESC",
+        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
     .await
@@ -114,7 +115,7 @@ pub async fn get_bot(
     auth::extract_claims(&state.jwt_secret, &headers)?;
 
     let bot = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at FROM bots WHERE id = ?",
+        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
     )
     .bind(&bot_id)
     .fetch_optional(&state.db)
@@ -135,7 +136,7 @@ pub async fn update_bot(
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
     let existing = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at FROM bots WHERE id = ?",
+        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
     )
     .bind(&bot_id)
     .fetch_optional(&state.db)
@@ -170,6 +171,7 @@ pub async fn update_bot(
         token: String::new(),
         permissions: new_perms,
         created_at: existing.created_at,
+        server_id: existing.server_id,
     }))
 }
 
@@ -182,7 +184,7 @@ pub async fn delete_bot(
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
     let existing = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at FROM bots WHERE id = ?",
+        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
     )
     .bind(&bot_id)
     .fetch_optional(&state.db)
@@ -212,7 +214,7 @@ pub async fn regenerate_bot_token(
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
     let existing = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at FROM bots WHERE id = ?",
+        "SELECT id, name, avatar_url, owner_id, '' as token, permissions, created_at, server_id FROM bots WHERE id = ?",
     )
     .bind(&bot_id)
     .fetch_optional(&state.db)
@@ -267,7 +269,7 @@ pub async fn bot_send_message(
 
     let msg_id = Uuid::new_v4().to_string();
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let bot_user_name = format!("{} [BOT]", bot.name);
+    let bot_user_name = bot.name.clone();
 
     sqlx::query(
         "INSERT INTO messages (id, channel_id, user_id, user_name, avatar_url, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -292,6 +294,7 @@ pub async fn bot_send_message(
         avatar_url: bot.avatar_url,
         content,
         created_at: now,
+        is_bot: true,
     };
 
     let tx = state.get_channel_tx(&req.channel_id);
@@ -322,7 +325,7 @@ pub async fn extract_bot(
     ))?;
 
     let bot = sqlx::query_as::<_, Bot>(
-        "SELECT id, name, avatar_url, owner_id, token, permissions, created_at FROM bots WHERE token = ?",
+        "SELECT id, name, avatar_url, owner_id, token, permissions, created_at, server_id FROM bots WHERE token = ?",
     )
     .bind(token)
     .fetch_optional(&state.db)

@@ -130,6 +130,13 @@ pub async fn register(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
 
+    // Add user to the default server
+    sqlx::query("INSERT OR IGNORE INTO server_members (server_id, user_id) VALUES ('default', ?)")
+        .bind(&user_id)
+        .execute(&state.db)
+        .await
+        .ok();
+
     // If setup_key provided, validate and grant admin role
     if let Some(key) = &req.setup_key {
         let key = key.trim();
@@ -141,8 +148,8 @@ pub async fn register(
                     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
                     let admin_role_id = "admin-role";
 
-                    // Ensure Admin role exists
-                    sqlx::query("INSERT OR IGNORE INTO roles (id, name, color, position, permissions, created_at) VALUES (?, 'Admin', '#FF0000', 999, ?, ?)")
+                    // Ensure Admin role exists (for default server)
+                    sqlx::query("INSERT OR IGNORE INTO roles (id, name, color, position, permissions, created_at, server_id) VALUES (?, 'Admin', '#FF0000', 999, ?, ?, 'default')")
                         .bind(admin_role_id)
                         .bind(crate::models::Permissions::ADMINISTRATOR.bits())
                         .bind(&now)

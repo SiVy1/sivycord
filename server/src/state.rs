@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -16,6 +17,8 @@ pub struct AppState {
     pub channels: Arc<DashMap<String, broadcast::Sender<WsServerMessage>>>,
     /// Number of connected WebSocket clients
     pub online: Arc<AtomicUsize>,
+    /// Set of currently online user IDs (for member list presence)
+    pub online_users: Arc<Mutex<HashSet<String>>>,
     /// Voice channel members: channel_id -> Vec<VoicePeer>
     pub voice_members: Arc<DashMap<String, Vec<VoicePeer>>>,
     /// Server-wide broadcast channel (for global presence)
@@ -35,6 +38,7 @@ impl AppState {
             db,
             channels: Arc::new(DashMap::new()),
             online: Arc::new(AtomicUsize::new(0)),
+            online_users: Arc::new(Mutex::new(HashSet::new())),
             voice_members: Arc::new(DashMap::new()),
             global_tx,
             jwt_secret,
@@ -62,6 +66,26 @@ impl AppState {
 
     pub fn dec_online(&self) {
         self.online.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    /// Mark a user as online
+    pub async fn user_online(&self, user_id: &str) {
+        self.online_users.lock().await.insert(user_id.to_string());
+    }
+
+    /// Mark a user as offline
+    pub async fn user_offline(&self, user_id: &str) {
+        self.online_users.lock().await.remove(user_id);
+    }
+
+    /// Check if a user is online
+    pub async fn is_user_online(&self, user_id: &str) -> bool {
+        self.online_users.lock().await.contains(user_id)
+    }
+
+    /// Get the set of all online user IDs
+    pub async fn get_online_user_ids(&self) -> HashSet<String> {
+        self.online_users.lock().await.clone()
     }
 
     // ─── Voice member tracking ───

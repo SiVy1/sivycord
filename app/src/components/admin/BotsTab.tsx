@@ -15,9 +15,11 @@ export function BotsTab({ server }: { server: ServerEntry }) {
   const [tab, setTab] = useState<"bots" | "webhooks">("bots");
 
   const baseUrl = getApiUrl(server.config.host, server.config.port);
+  const guildId = server.config.guildId || "default";
   const authHeaders = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${server.config.authToken}`,
+    "X-Server-Id": guildId,
   };
 
   const fetchData = async () => {
@@ -26,7 +28,7 @@ export function BotsTab({ server }: { server: ServerEntry }) {
       const [botsRes, webhooksRes, channelsRes] = await Promise.all([
         fetch(`${baseUrl}/api/bots`, { headers: authHeaders }),
         fetch(`${baseUrl}/api/webhooks`, { headers: authHeaders }),
-        fetch(`${baseUrl}/api/channels`),
+        fetch(`${baseUrl}/api/channels`, { headers: { "X-Server-Id": guildId } }),
       ]);
       if (botsRes.ok) setBots(await botsRes.json());
       if (webhooksRes.ok) setWebhooks(await webhooksRes.json());

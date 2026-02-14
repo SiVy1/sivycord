@@ -37,9 +37,11 @@ export function FederationTab({ server }: { server: ServerEntry }) {
   const [sharedSecret, setSharedSecret] = useState<string | null>(null);
 
   const baseUrl = getApiUrl(server.config.host, server.config.port);
+  const guildId = server.config.guildId || "default";
   const authHeaders = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${server.config.authToken}`,
+    "X-Server-Id": guildId,
   };
 
   const fetchData = async () => {
@@ -47,7 +49,7 @@ export function FederationTab({ server }: { server: ServerEntry }) {
     try {
       const [fedRes, chRes] = await Promise.all([
         fetch(`${baseUrl}/api/federation`, { headers: authHeaders }),
-        fetch(`${baseUrl}/api/channels`),
+        fetch(`${baseUrl}/api/channels`, { headers: { "X-Server-Id": guildId } }),
       ]);
       if (fedRes.ok) {
         const data: FederationStatus = await fedRes.json();

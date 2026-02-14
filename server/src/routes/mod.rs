@@ -6,6 +6,7 @@ pub mod invite;
 pub mod messages;
 pub mod roles;
 pub mod server_info;
+pub mod servers;
 pub mod uploads;
 pub mod audit_logs;
 pub mod members;

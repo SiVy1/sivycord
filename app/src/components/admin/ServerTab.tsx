@@ -16,7 +16,10 @@ export function ServerTab({ server }: { server: ServerEntry }) {
 
   useEffect(() => {
     const baseUrl = getApiUrl(server.config.host, server.config.port);
-    fetch(`${baseUrl}/api/server`)
+    const guildId = server.config.guildId || "default";
+    fetch(`${baseUrl}/api/server`, {
+      headers: { "X-Server-Id": guildId },
+    })
       .then((res) => res.json())
       .then((data) => {
         setName(data.name);
@@ -27,7 +30,9 @@ export function ServerTab({ server }: { server: ServerEntry }) {
       })
       .catch(console.error);
 
-    fetch(`${baseUrl}/api/stats`)
+    fetch(`${baseUrl}/api/stats`, {
+      headers: { "X-Server-Id": guildId },
+    })
       .then((res) => res.json())
       .then(setStats)
       .catch(console.error);
@@ -42,6 +47,7 @@ export function ServerTab({ server }: { server: ServerEntry }) {
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${server.config.authToken}`,
+          "X-Server-Id": server.config.guildId || "default",
         },
         body: JSON.stringify({
           name,
@@ -87,6 +93,7 @@ export function ServerTab({ server }: { server: ServerEntry }) {
           method: "POST",
           headers: {
             Authorization: `Bearer ${server.config.authToken}`,
+            "X-Server-Id": server.config.guildId || "default",
           },
           body: formData,
         },

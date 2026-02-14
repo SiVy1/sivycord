@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ServerSidebar } from "./ServerSidebar.tsx";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { ChatArea } from "./ChatArea.tsx";
+import { MemberListPanel } from "./MemberListPanel.tsx";
 import { useStore } from "../store";
 import { type ChatEntry, getApiUrl } from "../types";
 
@@ -9,6 +10,7 @@ export function MainLayout() {
   const activeServerId = useStore((s) => s.activeServerId);
   const servers = useStore((s) => s.servers);
   const setCurrentUser = useStore((s) => s.setCurrentUser);
+  const [showMembers, setShowMembers] = useState(true);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
 
@@ -79,9 +81,11 @@ export function MainLayout() {
       const { host, port } = activeServer.config;
       if (activeServer.type !== "legacy" || !host || !port) return;
       try {
+        const guildId = activeServer.config.guildId || "default";
         const res = await fetch(`${getApiUrl(host, port)}/api/me`, {
           headers: {
             Authorization: `Bearer ${activeServer.config.authToken}`,
+            "X-Server-Id": guildId,
           },
         });
         if (res.ok) {
@@ -105,11 +109,15 @@ export function MainLayout() {
       {/* Server icons sidebar */}
       <ServerSidebar />
 
-      {/* Channel list + chat area */}
+      {/* Channel list + chat area + member panel */}
       {activeServerId ? (
         <>
           <ChannelSidebar />
-          <ChatArea />
+          <ChatArea
+            showMembers={showMembers}
+            onToggleMembers={() => setShowMembers((v) => !v)}
+          />
+          <MemberListPanel visible={showMembers} />
         </>
       ) : (
         <div className="flex-1 flex items-center justify-center bg-bg-primary">

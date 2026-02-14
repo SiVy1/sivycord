@@ -25,9 +25,14 @@ export function CreateChannelModal({
     setError("");
 
     try {
+      const guildId = server.config.guildId || "default";
       const res = await fetch(`${baseUrl}/api/channels`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Server-Id": guildId,
+          ...(server.config.authToken ? { Authorization: `Bearer ${server.config.authToken}` } : {}),
+        },
         body: JSON.stringify({
           name: trimmed,
           description: "",

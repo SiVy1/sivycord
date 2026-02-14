@@ -198,6 +198,7 @@ pub async fn execute_webhook(
         avatar_url: avatar,
         content,
         created_at: now,
+        is_bot: false,
     };
 
     let tx = state.get_channel_tx(&webhook.channel_id);

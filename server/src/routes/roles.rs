@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     Extension, Json,
 };
 use uuid::Uuid;
@@ -9,6 +9,7 @@ use crate::models::{
     AssignRoleRequest, CreateRoleRequest, Permissions, Role, RoleWithMembers, UpdateRoleRequest,
 };
 use crate::routes::auth::Claims;
+use crate::routes::servers::extract_server_id;
 use crate::state::AppState;
 
 const MAX_ROLE_NAME: usize = 64;
@@ -43,9 +44,16 @@ pub async fn user_has_permission(
 }
 
 // ─── List all roles ───
-pub async fn list_roles(State(state): State<AppState>) -> Result<Json<Vec<RoleWithMembers>>, StatusCode> {
-    let roles = sqlx::query_as::<_, Role>("SELECT * FROM roles ORDER BY position DESC")
-        .fetch_all(&state.db)        .await
+pub async fn list_roles(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<RoleWithMembers>>, StatusCode> {
+    let server_id = extract_server_id(&headers);
+
+    let roles = sqlx::query_as::<_, Role>("SELECT * FROM roles WHERE server_id = ? ORDER BY position DESC")
+        .bind(&server_id)
+        .fetch_all(&state.db)
+        .await
         .map_err(|e| {
             tracing::error!("Failed to list roles: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
@@ -72,9 +80,12 @@ pub async fn list_roles(State(state): State<AppState>) -> Result<Json<Vec<RoleWi
 // ─── Create role (requires MANAGE_ROLES) ───
 pub async fn create_role(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Extension(claims): Extension<Claims>,
     Json(req): Json<CreateRoleRequest>,
 ) -> Result<(StatusCode, Json<Role>), StatusCode> {
+    let server_id = extract_server_id(&headers);
+
     // Check permission
     if !user_has_permission(&state, &claims.sub, Permissions::MANAGE_ROLES).await? {
         return Err(StatusCode::FORBIDDEN);
@@ -86,9 +97,10 @@ pub async fn create_role(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    // Check for duplicate name
-    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE name = ?")
+    // Check for duplicate name within server
+    let exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM roles WHERE name = ? AND server_id = ?")
         .bind(&name)
+        .bind(&server_id)
         .fetch_one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -97,8 +109,9 @@ pub async fn create_role(
         return Err(StatusCode::CONFLICT);
     }
 
-    // Get max position
-    let max_position: Option<i64> = sqlx::query_scalar("SELECT MAX(position) FROM roles")
+    // Get max position within server
+    let max_position: Option<i64> = sqlx::query_scalar("SELECT MAX(position) FROM roles WHERE server_id = ?")
+        .bind(&server_id)
         .fetch_one(&state.db)
         .await
         .ok()
@@ -111,14 +124,16 @@ pub async fn create_role(
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     sqlx::query(
-        "INSERT INTO roles (id, name, color, position, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO roles (id, name, color, position, permissions, created_at, server_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&role_id)
     .bind(&name)
     .bind(&req.color)
     .bind(position)
     .bind(req.permissions)
-    .bind(&now)    .execute(&state.db)
+    .bind(&now)
+    .bind(&server_id)
+    .execute(&state.db)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create role: {}", e);
@@ -132,6 +147,7 @@ pub async fn create_role(
         position,
         permissions: req.permissions,
         created_at: now,
+        server_id,
     };
 
     Ok((StatusCode::CREATED, Json(role)))
@@ -184,6 +200,7 @@ pub async fn update_role(
         position,
         permissions,
         created_at: role.created_at,
+        server_id: role.server_id,
     }))
 }
 

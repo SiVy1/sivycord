@@ -40,11 +40,13 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
     const { host, port } = activeServer.config;
     if (!host || !port) return;
     try {
+      const guildId = activeServer.config.guildId || "default";
       const res = await fetch(`${getApiUrl(host, port)}/api/me`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${activeServer.config.authToken}`,
+          "X-Server-Id": guildId,
         },
         body: JSON.stringify({ display_name: newName.trim() }),
       });
@@ -75,10 +77,12 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
     formData.append("file", file);
 
     try {
+      const guildId = activeServer.config.guildId || "default";
       const res = await fetch(`${getApiUrl(host, port)}/api/me/avatar`, {
         method: "PUT",
         headers: {
           Authorization: `Bearer ${activeServer.config.authToken}`,
+          "X-Server-Id": guildId,
         },
         body: formData,
       });

@@ -65,6 +65,7 @@ export type WsServerMessage =
       avatar_url?: string | null;
       content: string;
       created_at: string;
+      is_bot?: boolean;
     }
   | {
       type: "user_joined";

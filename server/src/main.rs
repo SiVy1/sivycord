@@ -118,9 +118,9 @@ async fn main() {
                 .await
                 .expect("Failed to create admin user");
 
-            // Ensure Admin role exists
+            // Ensure Admin role exists (for default server)
             let admin_role_id = "admin-role";
-            sqlx::query("INSERT OR IGNORE INTO roles (id, name, color, position, permissions, created_at) VALUES (?, 'Admin', '#FF0000', 999, ?, ?)")
+            sqlx::query("INSERT OR IGNORE INTO roles (id, name, color, position, permissions, created_at, server_id) VALUES (?, 'Admin', '#FF0000', 999, ?, ?, 'default')")
                 .bind(admin_role_id)
                 .bind(models::Permissions::ADMINISTRATOR.bits())
                 .bind(&now)
@@ -151,7 +151,7 @@ async fn main() {
     }
 
     let invite_code = token::generate_invite_code();
-    sqlx::query("INSERT OR IGNORE INTO invite_codes (code, max_uses) VALUES (?, NULL)")
+    sqlx::query("INSERT OR IGNORE INTO invite_codes (code, max_uses, server_id) VALUES (?, NULL, 'default')")
         .bind(&invite_code)
         .execute(&pool)
         .await
@@ -275,6 +275,15 @@ async fn main() {
         .route("/api/federation/channels", post(routes::federation::link_channel))
         .route("/api/federation/channels/{link_id}", delete(routes::federation::unlink_channel))
         .route("/api/federation/message", post(routes::federation::receive_federated_message))
+        // Multi-Server (Guilds)
+        .route("/api/servers", get(routes::servers::list_servers))
+        .route("/api/servers", post(routes::servers::create_server))
+        .route("/api/servers/{server_id}", get(routes::servers::get_server))
+        .route("/api/servers/{server_id}", put(routes::servers::update_server))
+        .route("/api/servers/{server_id}", delete(routes::servers::delete_server))
+        .route("/api/servers/{server_id}/join", post(routes::servers::join_server_by_id))
+        .route("/api/servers/{server_id}/leave", post(routes::servers::leave_server))
+        .route("/api/servers/{server_id}/members", get(routes::servers::list_server_members))
         // WebSocket
         .route("/ws", get(ws::ws_handler))
         // Middleware

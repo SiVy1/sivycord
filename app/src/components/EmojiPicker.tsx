@@ -12,6 +12,7 @@ interface EmojiPickerProps {
   serverHost: string;
   serverPort: number;
   authToken?: string;
+  guildId?: string;
   onSelect: (emojiText: string) => void;
   onClose: () => void;
 }
@@ -20,6 +21,7 @@ export function EmojiPicker({
   serverHost,
   serverPort,
   authToken,
+  guildId,
   onSelect,
   onClose,
 }: EmojiPickerProps) {
@@ -50,7 +52,9 @@ export function EmojiPicker({
 
   const fetchEmojis = async () => {
     try {
-      const res = await fetch(`${baseUrl}/api/emoji`);
+      const res = await fetch(`${baseUrl}/api/emoji`, {
+        headers: { "X-Server-Id": guildId || "default" },
+      });
       if (res.ok) {
         setEmojis(await res.json());
       }
@@ -71,7 +75,10 @@ export function EmojiPicker({
 
       const res = await fetch(`${baseUrl}/api/emoji`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "X-Server-Id": guildId || "default",
+        },
         body: formData,
       });
 

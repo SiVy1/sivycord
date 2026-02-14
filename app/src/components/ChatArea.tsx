@@ -29,7 +29,12 @@ const WS_MAX_RETRIES = 10;
 const MAX_FILE_SIZE = 25 * 1024 * 1024;
 const MESSAGES_PER_PAGE = 50;
 
-export function ChatArea() {
+interface ChatAreaProps {
+  showMembers?: boolean;
+  onToggleMembers?: () => void;
+}
+
+export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
   const activeServerId = useStore((s) => s.activeServerId);
   const servers = useStore((s) => s.servers);
   const activeChannelId = useStore((s) => s.activeChannelId);
@@ -141,6 +146,7 @@ export function ChatArea() {
     const controller = new AbortController();
     fetch(`${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}`, {
       signal: controller.signal,
+      headers: { "X-Server-Id": activeServer.config.guildId || "default" },
     })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -191,6 +197,7 @@ export function ChatArea() {
     if (!host || !port || !authToken || !userId) return;
 
     const baseUrl = getApiUrl(host, port);
+    const guildId = activeServer.config.guildId || "default";
     let cancelled = false;
 
     (async () => {
@@ -205,12 +212,15 @@ export function ChatArea() {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${authToken}`,
+              "X-Server-Id": guildId,
             },
             body: JSON.stringify({ public_key: pubKey }),
           });
         } else {
           // Check if key is already on the server; upload if not
-          const res = await fetch(`${baseUrl}/api/keys/${userId}`);
+          const res = await fetch(`${baseUrl}/api/keys/${userId}`, {
+            headers: { "X-Server-Id": guildId },
+          });
           if (res.status === 404) {
             const pubKey = await getLocalPublicKey(userId);
             if (pubKey) {
@@ -219,6 +229,7 @@ export function ChatArea() {
                 headers: {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${authToken}`,
+                  "X-Server-Id": guildId,
                 },
                 body: JSON.stringify({ public_key: pubKey }),
               });
@@ -228,7 +239,7 @@ export function ChatArea() {
 
         // Fetch all participant keys for this channel
         const keysRes = await fetch(`${baseUrl}/api/channels/${activeChannelId}/keys`, {
-          headers: { Authorization: `Bearer ${authToken}` },
+          headers: { Authorization: `Bearer ${authToken}`, "X-Server-Id": guildId },
         });
         if (!keysRes.ok) throw new Error("Failed to fetch channel keys");
 
@@ -267,9 +278,10 @@ export function ChatArea() {
     if (!host || !port) return;
     setWsStatus("connecting");
     const wsBaseUrl = getWsUrl(host, port);
+    const guildId = activeServer.config.guildId || "default";
     const wsUrl = authToken
-      ? `${wsBaseUrl}/ws?token=${encodeURIComponent(authToken)}`
-      : `${wsBaseUrl}/ws`;
+      ? `${wsBaseUrl}/ws?token=${encodeURIComponent(authToken)}&server_id=${encodeURIComponent(guildId)}`
+      : `${wsBaseUrl}/ws?server_id=${encodeURIComponent(guildId)}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
@@ -310,6 +322,7 @@ export function ChatArea() {
                     avatarUrl: data.avatar_url,
                     content: decrypted,
                     createdAt: data.created_at || "",
+                    isBot: data.is_bot,
                   });
                 })
                 .catch(() => {
@@ -321,6 +334,7 @@ export function ChatArea() {
                     avatarUrl: data.avatar_url,
                     content: "🔒 [Encrypted message — cannot decrypt]",
                     createdAt: data.created_at || "",
+                    isBot: data.is_bot,
                   });
                 });
               return; // handled async
@@ -337,6 +351,7 @@ export function ChatArea() {
             avatarUrl: data.avatar_url,
             content,
             createdAt: data.created_at || "",
+            isBot: data.is_bot,
           });
         } else if (data.type === "voice_state_sync") {
           useStore.getState().setVoiceMembers(data.voice_states);
@@ -429,8 +444,10 @@ export function ChatArea() {
     setIsLoadingMore(true);
     try {
       const baseUrl = getApiUrl(host, port);
+      const guildId = activeServer.config.guildId || "default";
       const res = await fetch(
         `${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}&before=${encodeURIComponent(oldest.createdAt)}`,
+        { headers: { "X-Server-Id": guildId } },
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: ApiMessage[] = await res.json();
@@ -482,7 +499,10 @@ export function ChatArea() {
 
           const res = await fetch(`${baseUrl}/api/upload`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${authToken}` },
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "X-Server-Id": activeServer.config.guildId || "default",
+            },
             body: formData,
           });
 
@@ -700,6 +720,22 @@ export function ChatArea() {
               )}
             </>
           )}
+          {/* Members toggle button */}
+          {onToggleMembers && (
+            <button
+              onClick={onToggleMembers}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                showMembers
+                  ? "bg-accent/20 text-accent"
+                  : "text-text-muted hover:text-text-primary hover:bg-bg-surface/60"
+              }`}
+              title={showMembers ? "Hide Members" : "Show Members"}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
@@ -833,6 +869,11 @@ export function ChatArea() {
                         <span className="text-sm font-bold text-text-primary tracking-tight">
                           {msg.userName || "Unknown"}
                         </span>
+                        {msg.isBot && (
+                          <span className="text-[9px] font-bold uppercase tracking-wider bg-accent/90 text-white px-1.5 py-0.5 rounded-sm leading-none">
+                            BOT
+                          </span>
+                        )}
                         <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
                           {formatTime(msg.createdAt)}
                         </span>
@@ -864,6 +905,7 @@ export function ChatArea() {
                     serverHost={activeServer.config.host}
                     serverPort={activeServer.config.port}
                     authToken={activeServer.config.authToken}
+                    guildId={activeServer.config.guildId}
                     onClose={() => setShowEmoji(false)}
                   />
                 )}

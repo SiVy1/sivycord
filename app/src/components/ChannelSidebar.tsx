@@ -85,7 +85,10 @@ export function ChannelSidebar() {
     const { host, port } = activeServer.config;
     if (!host || !port) return;
     const baseUrl = getApiUrl(host, port);
-    fetch(`${baseUrl}/api/channels`)
+    const guildId = activeServer.config.guildId || "default";
+    fetch(`${baseUrl}/api/channels`, {
+      headers: { "X-Server-Id": guildId },
+    })
       .then((r) => r.json())
       .then((data: Channel[]) => {
         setChannels(data);

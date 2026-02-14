@@ -13,6 +13,12 @@ pub struct Channel {
     pub channel_type: String,
     #[serde(default)]
     pub encrypted: bool,
+    #[serde(default = "default_server_id")]
+    pub server_id: String,
+}
+
+fn default_server_id() -> String {
+    "default".to_string()
 }
 
 fn default_channel_type() -> String {
@@ -41,6 +47,8 @@ pub struct Bot {
     pub token: String,
     pub permissions: i64,
     pub created_at: String,
+    #[serde(default = "default_server_id")]
+    pub server_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -60,6 +68,8 @@ pub struct InviteCode {
     pub created_at: String,
     pub uses: i64,
     pub max_uses: Option<i64>,
+    #[serde(default = "default_server_id")]
+    pub server_id: String,
 }
 
 // ─── E2E Encryption ───
@@ -186,6 +196,8 @@ pub struct Role {
     pub position: i64,
     pub permissions: i64,
     pub created_at: String,
+    #[serde(default = "default_server_id")]
+    pub server_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -282,8 +294,8 @@ pub struct AuditLog {
     pub target_id: Option<String>,
     pub target_name: Option<String>,
     pub details: Option<String>,
-    pub created_at: String,
-}
+    pub created_at: String,    #[serde(default = "default_server_id")]
+    pub server_id: String,}
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Ban {
@@ -291,8 +303,8 @@ pub struct Ban {
     pub user_name: String,
     pub reason: Option<String>,
     pub banned_by: String,
-    pub created_at: String,
-}
+    pub created_at: String,    #[serde(default = "default_server_id")]
+    pub server_id: String,}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BanRequest {
@@ -403,6 +415,8 @@ pub enum WsServerMessage {
         avatar_url: Option<String>,
         content: String,
         created_at: String,
+        #[serde(default)]
+        is_bot: bool,
     },
     #[serde(rename = "user_joined")]
     UserJoined {
@@ -484,6 +498,35 @@ pub struct VoicePeer {
     pub is_deafened: bool,
 }
 
+// ─── Multi-Server (Guild) ───
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Server {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub icon_url: Option<String>,
+    pub owner_id: String,
+    pub join_sound_url: Option<String>,
+    pub leave_sound_url: Option<String>,
+    pub sound_chance: i64,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ServerMember {
+    pub server_id: String,
+    pub user_id: String,
+    pub joined_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CreateServerRequest {
+    pub name: String,
+    pub description: Option<String>,
+}
+
 // ─── Connection Token ───
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -491,4 +534,25 @@ pub struct ConnectionToken {
     pub host: String,
     pub port: u16,
     pub invite_code: String,
+}
+
+// ─── Member Info (rich member data for member list) ───
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberInfo {
+    pub user_id: String,
+    pub display_name: String,
+    pub avatar_url: Option<String>,
+    pub is_bot: bool,
+    pub is_online: bool,
+    pub joined_at: String,
+    pub roles: Vec<RoleBrief>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleBrief {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub position: i64,
 }

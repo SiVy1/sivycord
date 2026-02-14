@@ -4,6 +4,7 @@ use crate::state::AppState;
 use crate::routes::audit_logs::create_audit_log;
 use crate::routes::auth::extract_claims;
 use crate::routes::roles::user_has_permission;
+use crate::routes::servers::extract_server_id;
 
 pub async fn list_bans(
     State(state): State<AppState>,
@@ -14,7 +15,10 @@ pub async fn list_bans(
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let bans: Vec<Ban> = sqlx::query_as("SELECT * FROM bans ORDER BY created_at DESC")
+    let server_id = extract_server_id(&headers);
+
+    let bans: Vec<Ban> = sqlx::query_as("SELECT * FROM bans WHERE server_id = ? ORDER BY created_at DESC")
+        .bind(&server_id)
         .fetch_all(&state.db)
         .await
         .unwrap_or_default();
@@ -33,17 +37,28 @@ pub async fn ban_member(
         return Err(StatusCode::FORBIDDEN);
     }
 
+    let server_id = extract_server_id(&headers);
+
     let user_name: String = sqlx::query_scalar("SELECT username FROM users WHERE id = ?")
         .bind(&user_id)
         .fetch_one(&state.db)
         .await
         .unwrap_or_else(|_| "Unknown User".to_string());
 
-    sqlx::query("INSERT OR REPLACE INTO bans (user_id, user_name, reason, banned_by) VALUES (?, ?, ?, ?)")
+    sqlx::query("INSERT OR REPLACE INTO bans (user_id, user_name, reason, banned_by, server_id) VALUES (?, ?, ?, ?, ?)")
         .bind(&user_id)
         .bind(&user_name)
         .bind(&payload.reason)
         .bind(&claims.username)
+        .bind(&server_id)
+        .execute(&state.db)
+        .await
+        .ok();
+
+    // Remove from server members
+    sqlx::query("DELETE FROM server_members WHERE server_id = ? AND user_id = ?")
+        .bind(&server_id)
+        .bind(&user_id)
         .execute(&state.db)
         .await
         .ok();

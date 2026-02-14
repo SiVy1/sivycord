@@ -39,7 +39,10 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     if (!host || !port) return;
 
     // Fetch user's roles
-    fetch(`${getApiUrl(host, port)}/api/users/${currentUser.id}/roles`)
+    const guildId = activeServer.config.guildId || "default";
+    fetch(`${getApiUrl(host, port)}/api/users/${currentUser.id}/roles`, {
+      headers: { "X-Server-Id": guildId },
+    })
       .then((res) => res.json())
       .then((roles: Role[]) => {
         const maxPerms = Math.max(...roles.map((r) => r.permissions), 0);
