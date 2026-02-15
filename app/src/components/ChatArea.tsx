@@ -87,7 +87,7 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
     string | null
   >(null);
   const [showPins, setShowPins] = useState(false);
-  const [pinnedMessages, setPinnedMessages] = useState<MessageWithReply[]>([]);
+  const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
   const [isLoadingPins, setIsLoadingPins] = useState(false);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const lastTypingSentRef = useRef<number>(0);
@@ -1871,147 +1871,6 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           </div>
         )}
       </div>
-
-      {/* Pins Sidebar Panel */}
-      {showPins && (
-        <div className="w-80 border-l border-border/50 bg-bg-secondary flex flex-col animate-in slide-in-from-right duration-300">
-          <div className="p-4 border-b border-border/50 flex items-center justify-between bg-bg-primary/30">
-            <div className="flex items-center gap-2">
-              <svg
-                className="w-4 h-4 text-accent"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
-                />
-              </svg>
-              <h3 className="text-xs font-bold uppercase tracking-widest text-text-primary">
-                Pinned Messages
-              </h3>
-            </div>
-            <button
-              onClick={() => setShowPins(false)}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface/60 transition-colors"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M6 18 18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-            {isLoadingPins ? (
-              <div className="flex flex-col items-center justify-center h-full gap-3 text-text-muted">
-                <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-                <span className="text-[10px] font-bold uppercase tracking-widest">
-                  Loading pins...
-                </span>
-              </div>
-            ) : pinnedMessages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-bg-primary/20 rounded-2xl border border-dashed border-border/30">
-                <div className="w-12 h-12 rounded-full bg-bg-surface flex items-center justify-center mb-4">
-                  <svg
-                    className="w-6 h-6 text-text-muted/40"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
-                    />
-                  </svg>
-                </div>
-                <h4 className="text-sm font-bold text-text-primary mb-1">
-                  No Pins Yet
-                </h4>
-                <p className="text-[11px] text-text-muted leading-relaxed">
-                  Important messages can be pinned to keep them accessible for
-                  everyone.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {pinnedMessages.map((msgWithReply) => {
-                  const msg = msgWithReply.message;
-                  return (
-                    <div
-                      key={msg.id}
-                      className="group/pin p-3 rounded-xl bg-bg-surface/40 border border-border/30 hover:border-accent/30 transition-all cursor-pointer"
-                      onClick={() => {
-                        const idx = messages.findIndex((m) => m.id === msg.id);
-                        if (idx >= 0) {
-                          virtuosoRef.current?.scrollToIndex({
-                            index: idx,
-                            align: "center",
-                            behavior: "smooth",
-                          });
-                        }
-                      }}
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent">
-                          {msg.userName?.[0].toUpperCase()}
-                        </div>
-                        <div className="flex flex-col min-w-0">
-                          <span className="text-[11px] font-bold text-text-primary truncate leading-tight">
-                            {msg.userName}
-                          </span>
-                          <span className="text-[9px] text-text-muted uppercase tracking-tighter">
-                            {formatTime(msg.createdAt)}
-                          </span>
-                        </div>
-                        <button
-                          className="ml-auto p-1 rounded-md opacity-0 group-hover/pin:opacity-100 hover:bg-danger/10 text-text-muted hover:text-danger transition-all"
-                          title="Unpin"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleTogglePin(msg.id, true);
-                          }}
-                        >
-                          <svg
-                            className="w-3.5 h-3.5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M6 18 18 6M6 6l12 12"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                      <p className="text-xs text-text-secondary line-clamp-3 break-words">
-                        {msg.content}
-                      </p>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 
@@ -2096,32 +1955,22 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           ) : (
             <div className="space-y-4">
               {pinnedMessages.map((msgWithReply) => {
-                const msg = msgWithReply.message;
+                if (!msgWithReply.content) return null;
                 return (
                   <div
-                    key={msg.id}
+                    key={msgWithReply.id}
                     className="group/pin p-3 rounded-xl bg-bg-surface/40 border border-border/30 hover:border-accent/30 transition-all cursor-pointer"
-                    onClick={() => {
-                      const idx = messages.findIndex((m) => m.id === msg.id);
-                      if (idx >= 0) {
-                        virtuosoRef.current?.scrollToIndex({
-                          index: idx,
-                          align: "center",
-                          behavior: "smooth",
-                        });
-                      }
-                    }}
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent">
-                        {msg.userName?.[0].toUpperCase()}
+                        {msgWithReply.userName}
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className="text-[11px] font-bold text-text-primary truncate leading-tight">
-                          {msg.userName}
+                          {msgWithReply.userName}
                         </span>
                         <span className="text-[9px] text-text-muted uppercase tracking-tighter">
-                          {formatTime(msg.createdAt)}
+                          {formatTime(msgWithReply.createdAt)}
                         </span>
                       </div>
                       <button
@@ -2129,7 +1978,7 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                         title="Unpin"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleTogglePin(msg.id, true);
+                          handleTogglePin(msgWithReply.id, true);
                         }}
                       >
                         <svg
@@ -2148,7 +1997,7 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                       </button>
                     </div>
                     <p className="text-xs text-text-secondary line-clamp-3 break-words">
-                      {msg.content}
+                      {msgWithReply.content}
                     </p>
                   </div>
                 );

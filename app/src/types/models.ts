@@ -24,8 +24,8 @@ export interface Message {
   attachments?: Attachment[];
   isBot?: boolean;
   reactions?: ReactionGroup[];
-  pinned_at?: string | null;
-  pinned_by?: string | null;
+  pinned_at?: string;
+  pinned_by?: string;
 }
 
 export interface ReactionGroup {
