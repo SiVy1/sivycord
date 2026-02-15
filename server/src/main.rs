@@ -217,6 +217,9 @@ async fn main() {
         .route("/api/keys/{user_id}", get(routes::encryption::get_user_key))
         .route("/api/channels/{channel_id}/keys", get(routes::encryption::get_channel_keys))
         .route("/api/channels/{channel_id}/encrypted", put(routes::encryption::set_channel_encrypted))
+        // Messages
+        .route("/api/messages/{message_id}", put(routes::messages::edit_message))
+        .route("/api/messages/{message_id}", delete(routes::messages::delete_message))
         // Federation
         .route("/api/federation", get(routes::federation::get_federation_status))
         .route("/api/federation/peers", post(routes::federation::add_peer))

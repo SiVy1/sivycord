@@ -25,6 +25,7 @@ pub struct Claims {
     pub username: String,
     pub display_name: String,
     pub exp: usize,
+    pub(crate) user_id: &_,
 }
 
 // ─── Request/Response types ───

@@ -145,6 +145,16 @@ pub struct AssignRoleRequest {
 // ─── API Types ───
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct MessageEdit {
+    pub content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MessageDelete {
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreateChannelRequest {
     pub name: String,
     #[serde(default)]
