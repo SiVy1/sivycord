@@ -200,6 +200,13 @@ async fn handle_socket(
                         if channel_id.is_empty() {
                             continue;
                         }
+                        //check if timeout has expired for user and remove from set if so
+                        if state.is_user_timed_out(&user_id).await {
+                            let _ = client_tx.send(WsServerMessage::Error {
+                                message: "You are currently timed out and cannot send messages".to_string(),
+                            }).await;
+                            continue;
+                        }
 
                         let msg_id = Uuid::new_v4().to_string();
                         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();

@@ -78,6 +78,7 @@ pub struct AppState {
     pub auth_rate_limiter: Arc<RateLimiter>,
     /// last typing event: (channel_id, user_id) -> Instant
     pub typing_limits: Arc<DashMap<(String, String), Instant>>,
+    pub is_user_timed_out: Arc<Mutex<HashSet<String>>>, // Set of user IDs currently timed out
 }
 
 impl AppState {
@@ -96,6 +97,7 @@ impl AppState {
             setup_key: Arc::new(Mutex::new(None)),
             auth_rate_limiter: Arc::new(RateLimiter::new(10, 60)), // 10 req/min per IP
             typing_limits: Arc::new(DashMap::new()),
+            is_user_timed_out: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -132,6 +134,11 @@ impl AppState {
     /// Check if a user is online
     pub async fn is_user_online(&self, user_id: &str) -> bool {
         self.online_users.lock().await.contains(user_id)
+    }
+
+    /// Check if a user is timed out
+    pub async fn is_user_timed_out(&self, user_id: &str) -> bool {
+        self.is_user_timed_out.lock().await.contains(user_id)
     }
 
     /// Get the set of all online user IDs
@@ -240,4 +247,6 @@ impl AppState {
             now.duration_since(*last_time).as_secs() < 30
         });
     }
+
+        
 }

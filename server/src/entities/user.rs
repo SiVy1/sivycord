@@ -13,6 +13,7 @@ pub struct Model {
     pub password_hash: String,
     pub avatar_url: Option<String>,
     pub created_at: String,
+    pub timeout_until: Option<String>, // New field for timeout expiration
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

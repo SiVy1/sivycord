@@ -191,6 +191,7 @@ async fn main() {
         .route("/api/members/{user_id}/kick", post(routes::members::kick_member))
         .route("/api/members/{user_id}/ban", post(routes::members::ban_member))
         .route("/api/members/{user_id}/ban", delete(routes::members::unban_member))
+        .route("/api/members/{user_id}/timeout", post(routes::members::timeout_member))
         // Roles
         .route("/api/roles", get(routes::roles::list_roles))
         .route("/api/roles", post(routes::roles::create_role))

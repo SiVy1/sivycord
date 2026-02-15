@@ -235,6 +235,13 @@ pub struct BanRequest {
     pub reason: Option<String>,
 }
 
+
+#[derive(Debug, serde::Deserialize)]
+pub struct TimeoutRequest {
+    pub reason: Option<String>,
+    pub duration_secs: i64, // Duration of the timeout in seconds
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerStats {
     pub total_users: i64,
