@@ -153,6 +153,7 @@ pub async fn register(
         password_hash: Set(password_hash),
         avatar_url: Set(None),
         created_at: Set(now.clone()),
+        timeout_until: Set(None),
     };
 
     user::Entity::insert(new_user)

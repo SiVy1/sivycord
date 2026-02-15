@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ScreenShareView } from "../ScreenShareView";
 import { useStore } from "../../store";
+import type { VoicePeer } from "../../types";
 
 interface ChatStreamGridProps {
   screenShares: Map<string, MediaStream>;
@@ -46,7 +47,7 @@ export function ChatStreamGrid({
             }`}
           >
             {Array.from(screenShares.entries()).map(([uid, stream]) => {
-              const m = voiceMembers.find((v) => v.user_id === uid);
+              const m = voiceMembers.find((v: VoicePeer) => v.user_id === uid);
               return (
                 <ScreenShareView
                   key={uid}

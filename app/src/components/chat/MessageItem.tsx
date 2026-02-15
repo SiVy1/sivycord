@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../../store";
 import {
   type ServerEntry,
   type Message,
   type WsClientMessage,
+  PERMISSIONS,
+  hasPermissionForUser,
 } from "../../types";
 import { MessageContent } from "../MessageContent";
 import { EmojiPicker } from "../EmojiPicker";
@@ -35,6 +37,7 @@ export function MessageItem({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
+  const [canTimeout, setCanTimeout] = useState<boolean>(false);
 
   const activeUserId = activeServer?.config.userId;
   const isOwnMessage = msg.userId === activeUserId;
@@ -75,6 +78,46 @@ export function MessageItem({
     setEditContent("");
   };
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!activeServer || !activeUserId) {
+        if (mounted) setCanTimeout(false);
+        return;
+      }
+      try {
+        const ok = await hasPermissionForUser(
+          activeServer,
+          activeUserId,
+          PERMISSIONS.KICK_MEMBERS,
+        );
+        if (mounted) setCanTimeout(!!ok);
+      } catch (e) {
+        if (mounted) setCanTimeout(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [activeServer, activeUserId]);
+
+  const timeOutUser = async (userId: string) => {
+    if (!activeServer) return;
+    if (canTimeout) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const timeoutMsg: WsClientMessage = {
+          type: "timeout_user",
+          user_id: userId,
+          duration_seconds: 300,
+        };
+        ws.send(JSON.stringify(timeoutMsg));
+      }
+    } else {
+      alert("You do not have permission to timeout users.");
+    }
+  };
+
   return (
     <div className={`group relative px-4 ${showHeader ? "mt-3" : ""}`}>
       {/* Hover action buttons */}
@@ -92,6 +135,8 @@ export function MessageItem({
           }}
           onDelete={handleDelete}
           onTogglePin={() => handleTogglePin(msg.id, !!msg.pinned_at)}
+          timeOutUser={timeOutUser}
+          canTimeout={canTimeout}
         />
       )}
 

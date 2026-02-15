@@ -10,6 +10,8 @@ interface MessageActionsProps {
   onEdit: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
+  timeOutUser: (userId: string) => void;
+  canTimeout: boolean;
 }
 
 export function MessageActions({
@@ -22,6 +24,8 @@ export function MessageActions({
   onEdit,
   onDelete,
   onTogglePin,
+  timeOutUser,
+  canTimeout,
 }: MessageActionsProps) {
   return (
     <div className="absolute right-4 -top-2 hidden group-hover:flex items-center gap-0.5 bg-bg-secondary border border-border/50 rounded-lg shadow-lg px-1 py-0.5 z-10 transition-all animate-in fade-in duration-200">
@@ -62,6 +66,28 @@ export function MessageActions({
         </button>
       </div>
 
+      {/* Timeout */}
+      {canTimeout && (
+        <button
+          className="p-1.5 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+          title="Timeout user"
+          onClick={() => timeOutUser(msg.userId)}
+        >
+          <svg
+            className="w-3.5 h-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+            />
+          </svg>
+        </button>
+      )}
       {/* Reply button */}
       <button
         className="p-1.5 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer"

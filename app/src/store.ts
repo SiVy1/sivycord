@@ -8,6 +8,7 @@ import type {
   VoicePeer,
   AuthUser,
   ReactionGroup,
+  Role,
 } from "./types";
 
 interface AppState {
@@ -98,6 +99,9 @@ interface AppState {
   setTyping: (channelId: string, userId: string, userName: string) => void;
   removeTyping: (channelId: string, userId: string) => void;
   clearExpiredTyping: () => void;
+  // Roles cache (per-server)
+  rolesByServer: Record<string, Role[]>;
+  fetchRolesForServer: (serverId: string) => Promise<Role[]>;
   // Iroh P2P
   nodeId: string | null;
   irohReady: boolean;
@@ -518,6 +522,38 @@ export const useStore = create<AppState>()(
             currentUser: null,
           };
         }),
+      // Roles cache
+      rolesByServer: {},
+      fetchRolesForServer: async (serverId: string) => {
+        const state = useStore.getState();
+        const server = state.servers.find((s) => s.id === serverId);
+        if (!server) return [];
+        // Return cached if present
+        if (state.rolesByServer[serverId]?.length)
+          return state.rolesByServer[serverId];
+
+        try {
+          const { getApiUrl, authHeaders } = await import("./types");
+          const res = await fetch(
+            `${getApiUrl(server.config.host, server.config.port)}/api/roles`,
+            {
+              headers: authHeaders(
+                server.config.authToken,
+                server.config.guildId,
+              ),
+            },
+          );
+          if (!res.ok) throw new Error("Failed to fetch roles");
+          const data: Role[] = await res.json();
+          set((s) => ({
+            rolesByServer: { ...(s.rolesByServer || {}), [serverId]: data },
+          }));
+          return data;
+        } catch (err) {
+          console.error("fetchRolesForServer failed", err);
+          return [];
+        }
+      },
     }),
 
     {

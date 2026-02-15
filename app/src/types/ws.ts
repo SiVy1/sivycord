@@ -13,6 +13,7 @@ export type WsClientMessage =
       user_name: string;
       reply_to?: string;
     }
+  | { type: "timeout_user"; user_id: string; duration_seconds: number }
   | {
       type: "join_voice";
       channel_id: string;
