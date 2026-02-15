@@ -1,15 +1,13 @@
-use crate::models::Permissions;
-
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     Json,
 };
-use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
-use crate::{entities::message, models::MessageEdit, routes::roles::user_has_permission};
-use crate::models::{Message, MessagesQuery};
-use crate::routes::auth;
+use crate::entities::message;
+use crate::models::{Message, MessageEdit, MessagesQuery, Permissions, WsServerMessage};
+use crate::routes::{auth, roles::user_has_permission};
 use crate::state::AppState;
 
 pub async fn get_messages(
@@ -23,6 +21,7 @@ pub async fn get_messages(
 
     let mut q = message::Entity::find()
         .filter(message::Column::ChannelId.eq(&channel_id))
+        .filter(message::Column::DeletedAt.is_null())
         .order_by_desc(message::Column::CreatedAt)
         .limit(limit);
 
@@ -48,20 +47,20 @@ pub async fn edit_message(
 ) -> Result<Json<Message>, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let mut message = message::Entity::find_by_id(message_id.clone())
+    let message = message::Entity::find_by_id(message_id.clone())
         .one(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
         .ok_or((StatusCode::NOT_FOUND, "Message not found".to_string()))?;
 
-    if message.user_id != claims.user_id {
+    if message.user_id != claims.sub {
         return Err((StatusCode::FORBIDDEN, "Not your message".to_string()));
     }
 
-    use sea_orm::{ActiveModelTrait, Set};
+    let channel_id = message.channel_id.clone();
 
     let mut active_message: message::ActiveModel = message.into();
-    active_message.content = Set(payload.content);
+    active_message.content = Set(payload.content.clone());
     active_message.edited_at = Set(Some(chrono::Utc::now()));
 
     let updated_message = active_message.update(&state.db).await.map_err(|e| {
@@ -70,6 +69,14 @@ pub async fn edit_message(
             format!("Failed to update message: {e}"),
         )
     })?;
+
+    // Broadcast edit to all subscribers
+    let tx = state.get_channel_tx(&channel_id);
+    let _ = tx.send(WsServerMessage::MessageEdited {
+        id: message_id,
+        content: payload.content,
+        edited_at: chrono::Utc::now(),
+    });
 
     Ok(Json(updated_message))
 }
@@ -87,15 +94,15 @@ pub async fn delete_message(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
         .ok_or((StatusCode::NOT_FOUND, "Message not found".to_string()))?;
 
-    let has_permission = user_has_permission(&state, &claims.user_id, Permissions::MANAGE_MESSAGES)
+    let has_permission = user_has_permission(&state, &claims.sub, Permissions::MANAGE_MESSAGES)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))?;
 
-    if message.user_id != claims.user_id || !has_permission {
-        return Err((StatusCode::FORBIDDEN, "Not your message".to_string()));
+    if message.user_id != claims.sub && !has_permission {
+        return Err((StatusCode::FORBIDDEN, "Not authorized to delete this message".to_string()));
     }
 
-    use sea_orm::{ActiveModelTrait, Set};
+    let channel_id = message.channel_id.clone();
 
     let mut active_message: message::ActiveModel = message.into();
     active_message.deleted_at = Set(Some(chrono::Utc::now()));
@@ -106,6 +113,13 @@ pub async fn delete_message(
             format!("Failed to delete message: {e}"),
         )
     })?;
+
+    // Broadcast deletion to all subscribers
+    let tx = state.get_channel_tx(&channel_id);
+    let _ = tx.send(WsServerMessage::MessageDeleted {
+        id: message_id,
+        channel_id,
+    });
 
     Ok(StatusCode::NO_CONTENT)
 }

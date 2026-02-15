@@ -11,10 +11,11 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::entities::{bot, federated_channel, federation_peer, message, server, user};
+use crate::{entities::{bot, federated_channel, federation_peer, message, server, user}, routes::roles::user_has_permission};
 use crate::models::{Bot, WsClientMessage, WsServerMessage};
 use crate::routes::auth;
 use crate::state::AppState;
+use crate::models::Permissions;
 
 const MAX_MESSAGE_LENGTH: usize = 2000;
 const MAX_FIELD_LENGTH: usize = 256;
@@ -293,6 +294,85 @@ async fn handle_socket(
                                     .send()
                                     .await;
                             }
+                        });
+                    }
+
+                    Ok(WsClientMessage::DeleteMessage { message_id, channel_id }) => {
+                        if !is_authenticated {
+                            let _ = client_tx.send(WsServerMessage::Error {
+                                message: "Authentication required to delete messages".to_string(),
+                            }).await;
+                            continue;
+                        }
+                      
+                        let msg = message::Entity::find_by_id(message_id.clone())
+                            .one(&state.db)
+                            .await
+                            .ok()
+                            .flatten(); 
+
+                        let Some(msg) = msg else { continue; };
+                        let has_permission = user_has_permission(&state, &user_id, Permissions::MANAGE_MESSAGES).await.unwrap_or(false);
+                        if msg.user_id != user_id && !has_permission {
+                            continue;
+                        }
+
+                        let msg_channel_id = msg.channel_id.clone();
+
+                        let mut active_msg: message::ActiveModel = msg.into();
+                        active_msg.deleted_at = Set(Some(chrono::Utc::now()));
+                        if let Err(e) = active_msg.update(&state.db).await {
+                            tracing::error!("Failed to delete message: {e}");
+                            continue;
+                        }
+
+                        let tx = state.get_channel_tx(&msg_channel_id);
+                        let _ = tx.send(WsServerMessage::MessageDeleted {
+                            id: message_id.clone(),
+                            channel_id: channel_id.clone(),
+                        });
+                    }
+
+                    Ok(WsClientMessage::EditMessage { message_id, content }) => {
+                        if !is_authenticated {
+                            let _ = client_tx.send(WsServerMessage::Error {
+                                message: "Authentication required to edit messages".to_string(),
+                            }).await;
+                            continue;
+                        }
+
+                        let content = content.trim().to_string();
+                        if content.is_empty() || content.len() > MAX_MESSAGE_LENGTH {
+                            continue;
+                        }
+
+                        let msg = message::Entity::find_by_id(message_id.clone())
+                            .one(&state.db)
+                            .await
+                            .ok()
+                            .flatten();
+
+                        let Some(msg) = msg else { continue; };
+                        let has_permission = user_has_permission(&state, &user_id, Permissions::MANAGE_MESSAGES).await.unwrap_or(false);
+                        if msg.user_id != user_id && !has_permission {
+                            continue; // Only allow editing own messages or users with MANAGE_MESSAGES permission
+                        }
+
+                        let msg_channel_id = msg.channel_id.clone();
+
+                        let mut active_msg: message::ActiveModel = msg.into();
+                        active_msg.content = Set(content.clone());
+                        active_msg.edited_at = Set(Some(chrono::Utc::now()));
+                        if let Err(e) = active_msg.update(&state.db).await {
+                            tracing::error!("Failed to edit message: {e}");
+                            continue;
+                        }
+
+                        let tx = state.get_channel_tx(&msg_channel_id);
+                        let _ = tx.send(WsServerMessage::MessageEdited {
+                            id: message_id.clone(),
+                            content: content.clone(),
+                            edited_at: chrono::Utc::now(),
                         });
                     }
 

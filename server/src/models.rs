@@ -254,6 +254,16 @@ pub enum WsClientMessage {
         user_id: String,
         user_name: String,
     },
+    #[serde(rename = "edit_message")]
+    EditMessage {
+        message_id: String,
+        content: String,
+    },
+    #[serde(rename = "delete_message")]
+    DeleteMessage {
+        message_id: String,
+        channel_id: String,
+    },
     // ─── Voice signaling ───
     #[serde(rename = "join_voice")]
     JoinVoice {
@@ -318,6 +328,17 @@ pub enum WsServerMessage {
         created_at: String,
         #[serde(default)]
         is_bot: bool,
+    },
+    #[serde(rename = "message_edited")]
+    MessageEdited {
+        id: String,
+        content: String,
+        edited_at: chrono::DateTime<chrono::Utc>,
+    },
+    #[serde(rename = "message_deleted")]
+    MessageDeleted {
+        id: String,
+        channel_id: String,
     },
     #[serde(rename = "user_joined")]
     UserJoined {

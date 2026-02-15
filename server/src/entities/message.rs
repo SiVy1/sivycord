@@ -12,8 +12,8 @@ pub struct Model {
     pub avatar_url: Option<String>,
     pub content: String,
     pub created_at: String,
-    pub(crate) edited_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub(crate) deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
