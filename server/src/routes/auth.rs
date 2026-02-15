@@ -20,12 +20,12 @@ use crate::state::AppState;
 // ─── JWT Claims ───
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Claims {
+pub struct Claims{
     pub sub: String, // user_id
     pub username: String,
     pub display_name: String,
     pub exp: usize,
-    pub(crate) user_id: &_,
+    pub(crate) user_id: String,
 }
 
 // ─── Request/Response types ───
@@ -352,6 +352,7 @@ fn create_jwt(
         username: username.to_string(),
         display_name: display_name.to_string(),
         exp: expiration,
+        user_id: user_id.to_string(),
     };
 
     encode(
