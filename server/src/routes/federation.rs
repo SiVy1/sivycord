@@ -413,6 +413,8 @@ pub async fn receive_federated_message(
         content: req.content,
         created_at: now,
         is_bot: false,
+        reply_to: None,
+        replied_message: None,
     };
 
     let tx = state.get_channel_tx(&link.local_channel_id);

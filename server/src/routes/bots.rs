@@ -277,6 +277,7 @@ pub async fn bot_send_message(
         created_at: Set(now.clone()),
         edited_at: Set(None),
         deleted_at: Set(None),
+        reply_to: Set(None),
     };
 
     message::Entity::insert(new_msg)
@@ -294,6 +295,8 @@ pub async fn bot_send_message(
         content,
         created_at: now,
         is_bot: true,
+        reply_to: None,
+        replied_message: None,
     };
 
     let tx = state.get_channel_tx(&req.channel_id);

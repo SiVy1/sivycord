@@ -11,6 +11,7 @@ export type WsClientMessage =
       content: string;
       user_id: string;
       user_name: string;
+      reply_to?: string;
     }
   | {
       type: "join_voice";
@@ -76,6 +77,12 @@ export type WsServerMessage =
       content: string;
       created_at: string;
       is_bot?: boolean;
+      reply_to?: string | null;
+      replied_message?: {
+        id: string;
+        content: string;
+        user_name: string;
+      } | null;
     }
   | {
       type: "message_edited";
@@ -87,6 +94,21 @@ export type WsServerMessage =
       type: "message_deleted";
       id: string;
       channel_id: string;
+    }
+  | {
+      type: "reaction_add";
+      message_id: string;
+      channel_id: string;
+      user_id: string;
+      user_name: string;
+      emoji: string;
+    }
+  | {
+      type: "reaction_remove";
+      message_id: string;
+      channel_id: string;
+      user_id: string;
+      emoji: string;
     }
   | {
       type: "user_joined";

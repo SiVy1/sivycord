@@ -220,6 +220,8 @@ async fn main() {
         // Messages
         .route("/api/messages/{message_id}", put(routes::messages::edit_message))
         .route("/api/messages/{message_id}", delete(routes::messages::delete_message))
+        .route("/api/messages/{message_id}/reactions", post(routes::reactions::add_reaction))
+        .route("/api/messages/{message_id}/reactions/{emoji}", delete(routes::reactions::remove_reaction))
         // Federation
         .route("/api/federation", get(routes::federation::get_federation_status))
         .route("/api/federation/peers", post(routes::federation::add_peer))

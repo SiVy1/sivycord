@@ -7,6 +7,29 @@ use serde::{Deserialize, Serialize};
 // Aliases to entity models for routes that still reference the old names
 pub use crate::entities::channel::Model as Channel;
 pub use crate::entities::message::Model as Message;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepliedMessage {
+    pub id: String,
+    pub content: String,
+    pub user_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReactionGroup {
+    pub emoji: String,
+    pub count: i64,
+    pub user_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageWithReply {
+    #[serde(flatten)]
+    pub message: Message,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replied_message: Option<RepliedMessage>,
+    pub reactions: Vec<ReactionGroup>,
+}
 pub use crate::entities::bot::Model as Bot;
 pub use crate::entities::webhook::Model as Webhook;
 pub use crate::entities::invite_code::Model as InviteCode;
@@ -253,6 +276,8 @@ pub enum WsClientMessage {
         content: String,
         user_id: String,
         user_name: String,
+        #[serde(default)]
+        reply_to: Option<String>,
     },
     #[serde(rename = "edit_message")]
     EditMessage {
@@ -328,6 +353,10 @@ pub enum WsServerMessage {
         created_at: String,
         #[serde(default)]
         is_bot: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reply_to: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        replied_message: Option<RepliedMessage>,
     },
     #[serde(rename = "message_edited")]
     MessageEdited {
@@ -339,6 +368,21 @@ pub enum WsServerMessage {
     MessageDeleted {
         id: String,
         channel_id: String,
+    },
+    #[serde(rename = "reaction_add")]
+    ReactionAdd {
+        message_id: String,
+        channel_id: String,
+        user_id: String,
+        user_name: String,
+        emoji: String,
+    },
+    #[serde(rename = "reaction_remove")]
+    ReactionRemove {
+        message_id: String,
+        channel_id: String,
+        user_id: String,
+        emoji: String,
     },
     #[serde(rename = "user_joined")]
     UserJoined {

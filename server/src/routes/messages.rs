@@ -4,9 +4,13 @@ use axum::{
     Json,
 };
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use std::collections::HashMap;
 
-use crate::entities::message;
-use crate::models::{Message, MessageEdit, MessagesQuery, Permissions, WsServerMessage};
+use crate::entities::{message, reaction};
+use crate::models::{
+    Message, MessageEdit, MessageWithReply, MessagesQuery, Permissions, ReactionGroup,
+    RepliedMessage, WsServerMessage,
+};
 use crate::routes::{auth, roles::user_has_permission};
 use crate::state::AppState;
 
@@ -15,7 +19,7 @@ pub async fn get_messages(
     headers: HeaderMap,
     Path(channel_id): Path<String>,
     Query(query): Query<MessagesQuery>,
-) -> Result<Json<Vec<Message>>, (StatusCode, String)> {
+) -> Result<Json<Vec<MessageWithReply>>, (StatusCode, String)> {
     let _claims = auth::extract_claims(&state.jwt_secret, &headers)?;
     let limit = query.limit.unwrap_or(50).min(100) as u64;
 
@@ -36,7 +40,87 @@ pub async fn get_messages(
 
     messages.reverse();
 
-    Ok(Json(messages))
+    // Batch-fetch replied messages
+    let reply_ids: Vec<String> = messages
+        .iter()
+        .filter_map(|m| m.reply_to.clone())
+        .collect();
+
+    let replied_map: HashMap<String, Message> = if !reply_ids.is_empty() {
+        message::Entity::find()
+            .filter(message::Column::Id.is_in(&reply_ids))
+            .all(&state.db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| (m.id.clone(), m))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+
+    // Batch-fetch reactions for these messages
+    let message_ids: Vec<String> = messages.iter().map(|m| m.id.clone()).collect();
+    let reactions = if !message_ids.is_empty() {
+        reaction::Entity::find()
+            .filter(reaction::Column::MessageId.is_in(&message_ids))
+            .all(&state.db)
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    // Group reactions by message_id, then by emoji
+    let mut reaction_map: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+    for r in reactions {
+        reaction_map
+            .entry(r.message_id)
+            .or_default()
+            .entry(r.emoji)
+            .or_default()
+            .push(r.user_id);
+    }
+
+    let result: Vec<MessageWithReply> = messages
+        .into_iter()
+        .map(|msg| {
+            let msg_id = msg.id.clone();
+            let replied_message = msg.reply_to.as_ref().and_then(|rid| {
+                replied_map.get(rid).map(|m| {
+                    let truncated = if m.content.len() > 100 {
+                        format!("{}…", &m.content[..100])
+                    } else {
+                        m.content.clone()
+                    };
+                    RepliedMessage {
+                        id: m.id.clone(),
+                        content: truncated,
+                        user_name: m.user_name.clone(),
+                    }
+                })
+            });
+
+            let reactions = reaction_map
+                .remove(&msg_id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(emoji, user_ids)| ReactionGroup {
+                    count: user_ids.len() as i64,
+                    user_ids,
+                    emoji,
+                })
+                .collect();
+
+            MessageWithReply {
+                message: msg,
+                replied_message,
+                reactions,
+            }
+        })
+        .collect();
+
+    Ok(Json(result))
 }
 
 pub async fn edit_message(

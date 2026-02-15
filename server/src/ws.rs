@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::{entities::{bot, federated_channel, federation_peer, message, server, user}, routes::roles::user_has_permission};
-use crate::models::{Bot, WsClientMessage, WsServerMessage};
+use crate::models::{Bot, RepliedMessage, WsClientMessage, WsServerMessage};
 use crate::routes::auth;
 use crate::state::AppState;
 use crate::models::Permissions;
@@ -181,6 +181,7 @@ async fn handle_socket(
                     Ok(WsClientMessage::SendMessage {
                         channel_id,
                         content,
+                        reply_to,
                         ..
                     }) => {
                         // REQUIRE AUTH for sending messages
@@ -209,6 +210,7 @@ async fn handle_socket(
                             user_name: Set(user_name.clone()),
                             content: Set(content.clone()),
                             created_at: Set(now.clone()),
+                            reply_to: Set(reply_to.clone()),
                             ..Default::default()
                         };
 
@@ -237,6 +239,29 @@ async fn handle_socket(
                                 .and_then(|u| u.avatar_url)
                         };
 
+                        // Fetch replied message data if reply_to is set
+                        let replied_message = if let Some(ref reply_id) = reply_to {
+                            message::Entity::find_by_id(reply_id)
+                                .one(&state.db)
+                                .await
+                                .ok()
+                                .flatten()
+                                .map(|m| {
+                                    let truncated = if m.content.len() > 100 {
+                                        format!("{}…", &m.content[..100])
+                                    } else {
+                                        m.content.clone()
+                                    };
+                                    RepliedMessage {
+                                        id: m.id,
+                                        content: truncated,
+                                        user_name: m.user_name,
+                                    }
+                                })
+                        } else {
+                            None
+                        };
+
                         let broadcast_msg = WsServerMessage::NewMessage {
                             id: msg_id,
                             channel_id: channel_id.clone(),
@@ -246,6 +271,8 @@ async fn handle_socket(
                             content: content.clone(),
                             created_at: now,
                             is_bot: is_bot_connection,
+                            reply_to,
+                            replied_message,
                         };
 
                         let tx = state.get_channel_tx(&channel_id);

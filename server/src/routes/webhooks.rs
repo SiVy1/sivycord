@@ -185,6 +185,7 @@ pub async fn execute_webhook(
         created_at: Set(now.clone()),
         edited_at: Set(None),
         deleted_at: Set(None),
+        reply_to: Set(None),
     };
 
     message::Entity::insert(new_msg)
@@ -202,6 +203,8 @@ pub async fn execute_webhook(
         content,
         created_at: now,
         is_bot: false,
+        reply_to: None,
+        replied_message: None,
     };
 
     let tx = state.get_channel_tx(&wh.channel_id);

@@ -7,6 +7,7 @@ import type {
   Message,
   VoicePeer,
   AuthUser,
+  ReactionGroup,
 } from "./types";
 
 interface AppState {
@@ -47,6 +48,15 @@ interface AppState {
   setIsLoadingMore: (v: boolean) => void;
   updateMessage: (id: string, updates: Partial<Message>) => void;
   removeMessage: (id: string) => void;
+  addReaction: (
+    messageId: string,
+    emoji: string,
+    userId: string,
+    userName: string,
+  ) => void;
+  removeReaction: (messageId: string, emoji: string, userId: string) => void;
+  replyingTo: Message | null;
+  setReplyingTo: (msg: Message | null) => void;
   // Voice
   voiceChannelId: string | null;
   voiceMembers: VoicePeer[];
@@ -169,6 +179,53 @@ export const useStore = create<AppState>()(
         set((s) => ({
           messages: s.messages.filter((m) => m.id !== id),
         })),
+      replyingTo: null,
+      addReaction: (messageId, emoji, userId, _userName) =>
+        set((s) => ({
+          messages: s.messages.map((m) => {
+            if (m.id !== messageId) return m;
+            const reactions = [...(m.reactions || [])];
+            const groupIndex = reactions.findIndex((g) => g.emoji === emoji);
+
+            if (groupIndex > -1) {
+              const group = reactions[groupIndex];
+              if (!group.user_ids.includes(userId)) {
+                reactions[groupIndex] = {
+                  ...group,
+                  count: group.count + 1,
+                  user_ids: [...group.user_ids, userId],
+                };
+              }
+            } else {
+              reactions.push({ emoji, count: 1, user_ids: [userId] });
+            }
+            return { ...m, reactions };
+          }),
+        })),
+
+      removeReaction: (messageId, emoji, userId) =>
+        set((s) => ({
+          messages: s.messages.map((m) => {
+            if (m.id !== messageId) return m;
+            const reactions = (m.reactions || [])
+              .map((g: ReactionGroup) => {
+                if (g.emoji !== emoji) return g;
+                const newUserIds = g.user_ids.filter(
+                  (id: string) => id !== userId,
+                );
+                if (newUserIds.length === 0) return null;
+                return {
+                  ...g,
+                  count: Math.max(0, g.count - 1),
+                  user_ids: newUserIds,
+                };
+              })
+              .filter((g): g is ReactionGroup => g !== null);
+            return { ...m, reactions };
+          }),
+        })),
+
+      setReplyingTo: (msg) => set({ replyingTo: msg }),
 
       // Voice
       voiceChannelId: null,

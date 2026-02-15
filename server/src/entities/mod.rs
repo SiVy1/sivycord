@@ -7,6 +7,7 @@ pub mod federated_channel;
 pub mod federation_peer;
 pub mod invite_code;
 pub mod message;
+pub mod reaction;
 pub mod role;
 pub mod server;
 pub mod server_member;

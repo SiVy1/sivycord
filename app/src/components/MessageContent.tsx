@@ -39,7 +39,13 @@ function ExternalImagePlaceholder({ url, alt }: { url: string; alt: string }) {
       onClick={() => setLoaded(true)}
       className="mt-1 mb-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-bg-surface text-text-secondary text-xs hover:bg-bg-hover transition-colors"
     >
-      <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <svg
+        className="w-4 h-4 shrink-0"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
         <path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
       </svg>
       <span>External image — click to load</span>
@@ -47,10 +53,46 @@ function ExternalImagePlaceholder({ url, alt }: { url: string; alt: string }) {
   );
 }
 
+export function EmojiImage({
+  name,
+  server,
+  className = "",
+}: {
+  name: string;
+  server: ServerEntry;
+  className?: string;
+}) {
+  const { host, port } = server.config || {};
+  const baseUrl = host && port ? getApiUrl(host, port) : "";
+  const src = `${baseUrl}/api/uploads/emoji/${name}`;
+
+  return (
+    <img
+      src={src}
+      alt={`:${name}:`}
+      title={`:${name}:`}
+      className={
+        className || "inline-block w-6 h-6 object-contain align-bottom mx-0.5"
+      }
+      onError={(e) => {
+        const el = e.target as HTMLElement;
+        const text = document.createTextNode(`:${name}:`);
+        el.parentNode?.replaceChild(text, el);
+      }}
+    />
+  );
+}
+
 // ─── Message content renderer ───
 // Renders links as clickable, images as inline previews
 
-export const MessageContent = memo(function MessageContent({ content, server }: { content: string; server: ServerEntry }) {
+export const MessageContent = memo(function MessageContent({
+  content,
+  server,
+}: {
+  content: string;
+  server: ServerEntry;
+}) {
   const { host, port } = server.config || {};
   const baseUrl = host && port ? getApiUrl(host, port) : "";
 
@@ -67,14 +109,22 @@ export const MessageContent = memo(function MessageContent({ content, server }: 
 
           // Block data: URIs entirely
           if (/^data:/i.test(url)) {
-            return <span key={i} className="text-text-secondary italic">[blocked data: URI]</span>;
+            return (
+              <span key={i} className="text-text-secondary italic">
+                [blocked data: URI]
+              </span>
+            );
           }
 
           const fullUrl = url.startsWith("/") ? `${baseUrl}${url}` : url;
 
           // Block javascript: URIs
           if (/^javascript:/i.test(fullUrl)) {
-            return <span key={i} className="text-text-secondary italic">[blocked link]</span>;
+            return (
+              <span key={i} className="text-text-secondary italic">
+                [blocked link]
+              </span>
+            );
           }
 
           const isLocal = isSameOriginUrl(url, baseUrl);
@@ -87,7 +137,9 @@ export const MessageContent = memo(function MessageContent({ content, server }: 
           if ((isImage || (isUpload && !isVideo)) && !text.startsWith("📎")) {
             // External images require click-to-load to prevent IP logging
             if (!isLocal) {
-              return <ExternalImagePlaceholder key={i} url={fullUrl} alt={text} />;
+              return (
+                <ExternalImagePlaceholder key={i} url={fullUrl} alt={text} />
+              );
             }
             return (
               <div key={i} className="mt-1 mb-1">
@@ -146,7 +198,7 @@ export const MessageContent = memo(function MessageContent({ content, server }: 
           return (
             <a
               key={i}
-              href={safe ? fullUrl : '#'}
+              href={safe ? fullUrl : "#"}
               target="_blank"
               rel="noopener noreferrer"
               className="text-accent hover:underline font-medium"
@@ -159,21 +211,7 @@ export const MessageContent = memo(function MessageContent({ content, server }: 
         // Emoji match
         const emojiMatch = part.match(/^:([a-z0-9_]+):$/);
         if (emojiMatch) {
-          return (
-            <img
-              key={i}
-              src={`${baseUrl}/api/uploads/emoji/${emojiMatch[1]}`}
-              alt={part}
-              title={part}
-              className="inline-block w-6 h-6 object-contain align-bottom mx-0.5"
-              onError={(e) => {
-                // If not found, revert to text safely
-                const el = e.target as HTMLElement;
-                const text = document.createTextNode(part);
-                el.parentNode?.replaceChild(text, el);
-              }}
-            />
-          );
+          return <EmojiImage key={i} name={emojiMatch[1]} server={server} />;
         }
 
         return <span key={i}>{part}</span>;

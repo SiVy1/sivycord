@@ -4,7 +4,12 @@ import { useStore } from "../store";
 import { setTalkingDirect } from "../hooks/talkingStore";
 import { EmojiPicker } from "./EmojiPicker";
 import { ScreenShareView } from "./ScreenShareView";
-import { MessageContent, formatTime, formatFileSize } from "./MessageContent";
+import {
+  MessageContent,
+  EmojiImage,
+  formatTime,
+  formatFileSize,
+} from "./MessageContent";
 import {
   type WsClientMessage,
   type WsServerMessage,
@@ -58,6 +63,10 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
   const screenShares = useStore((s) => s.screenShares);
   const removeScreenShare = useStore((s) => s.removeScreenShare);
   const voiceMembers = useStore((s) => s.voiceMembers);
+  const replyingTo = useStore((s) => s.replyingTo);
+  const setReplyingTo = useStore((s) => s.setReplyingTo);
+  const addReaction = useStore((s) => s.addReaction);
+  const removeReaction = useStore((s) => s.removeReaction);
 
   const [input, setInput] = useState("");
   const [showStreams, setShowStreams] = useState(true);
@@ -70,6 +79,9 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
   const [atBottom, setAtBottom] = useState(true);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<
+    string | null
+  >(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const prevChannelRef = useRef<string | null>(null);
@@ -186,6 +198,17 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           userName: m.user_name || "Unknown",
           content: m.content || "",
           createdAt: m.created_at || "",
+          editedAt: m.edited_at,
+          isBot: m.is_bot,
+          avatarUrl: m.avatar_url,
+          replyTo: m.reply_to,
+          repliedMessage: m.replied_message
+            ? {
+                id: m.replied_message.id,
+                content: m.replied_message.content,
+                userName: m.replied_message.user_name,
+              }
+            : undefined,
         }));
         mapped.forEach((m) => seenMsgIds.current.add(m.id));
         setMessages(mapped);
@@ -472,12 +495,33 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
             content,
             createdAt: data.created_at || "",
             isBot: data.is_bot,
+            replyTo: data.reply_to ?? undefined,
+            repliedMessage: data.replied_message
+              ? {
+                  id: data.replied_message.id,
+                  content: data.replied_message.content,
+                  userName: data.replied_message.user_name,
+                }
+              : undefined,
           });
         } else if (data.type === "message_edited") {
           useStore.getState().updateMessage(data.id, {
             content: data.content,
             editedAt: data.edited_at,
           });
+        } else if (data.type === "reaction_add") {
+          useStore
+            .getState()
+            .addReaction(
+              data.message_id,
+              data.emoji,
+              data.user_id,
+              data.user_name,
+            );
+        } else if (data.type === "reaction_remove") {
+          useStore
+            .getState()
+            .removeReaction(data.message_id, data.emoji, data.user_id);
         } else if (data.type === "message_deleted") {
           useStore.getState().removeMessage(data.id);
         } else if (data.type === "voice_state_sync") {
@@ -599,6 +643,17 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
         userName: m.user_name || "Unknown",
         content: m.content || "",
         createdAt: m.created_at || "",
+        editedAt: m.edited_at,
+        isBot: m.is_bot,
+        avatarUrl: m.avatar_url,
+        replyTo: m.reply_to,
+        repliedMessage: m.replied_message
+          ? {
+              id: m.replied_message.id,
+              content: m.replied_message.content,
+              userName: m.replied_message.user_name,
+            }
+          : undefined,
       }));
 
       mapped.forEach((m) => seenMsgIds.current.add(m.id));
@@ -747,10 +802,61 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
       content: finalContent,
       user_id: activeServer.config.userId || "unknown",
       user_name: displayName || "Anonymous",
+      ...(replyingTo ? { reply_to: replyingTo.id } : {}),
     };
     wsRef.current.send(JSON.stringify(msg));
     setInput("");
-  }, [input, activeChannelId, activeServer, displayName, e2eEnabled, e2eReady]);
+    setReplyingTo(null);
+  }, [
+    input,
+    activeChannelId,
+    activeServer,
+    displayName,
+    e2eEnabled,
+    e2eReady,
+    replyingTo,
+    setReplyingTo,
+  ]);
+
+  const handleToggleReaction = async (messageId: string, emoji: string) => {
+    if (!activeServer || !activeChannelId) return;
+    const { host, port, authToken, userId } = activeServer.config;
+    if (!host || !port || !authToken || !userId) return;
+
+    const message = messages.find((m) => m.id === messageId);
+    const hasOwn = message?.reactions
+      ?.find((g) => g.emoji === emoji)
+      ?.user_ids.includes(userId);
+
+    const baseUrl = getApiUrl(host, port);
+    try {
+      if (hasOwn) {
+        // Optimistic UI
+        removeReaction(messageId, emoji, userId);
+        await fetch(
+          `${baseUrl}/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${authToken}` },
+          },
+        );
+      } else {
+        // Optimistic UI
+        addReaction(messageId, emoji, userId, displayName);
+        await fetch(`${baseUrl}/api/messages/${messageId}/reactions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ emoji }),
+        });
+      }
+    } catch (err) {
+      console.error("Failed to toggle reaction:", err);
+      // Fallback is implicit: the store will eventually be updated correctly by the broadcast
+    }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1024,15 +1130,49 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                   className={`group relative px-4 ${showHeader ? "mt-3" : ""}`}
                 >
                   {/* Hover action buttons */}
-                  {!isEditing && isOwnMessage && (
+                  {!isEditing && (
                     <div className="absolute right-4 -top-2 hidden group-hover:flex items-center gap-0.5 bg-bg-secondary border border-border/50 rounded-lg shadow-lg px-1 py-0.5 z-10">
+                      {/* Quick Reactions */}
+                      <div className="flex items-center gap-0.5 pr-1 mr-1 border-r border-border/50">
+                        {["👍", "❤️", "😂", "🎉"].map((emoji) => (
+                          <button
+                            key={emoji}
+                            className="p-1 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer text-sm leading-none"
+                            onClick={() => handleToggleReaction(msg.id, emoji)}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                        <button
+                          className="p-1 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                          title="Add reaction"
+                          onClick={() => setReactionPickerMessageId(msg.id)}
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 10.5h.008v.008H12v-.008zM12 4.5v.75m0 0a1.5 1.5 0 01-3 0V4.5m3 .75a1.5 1.5 0 003 0V4.5M6 10.5h.008v.008H6v-.008zm12 0h.008v.008H18v-.008zM6 16.5h.008v.008H6v-.008zm12 0h.008v.008H18v-.008zM12 16.5h.008v.008H12v-.008z"
+                            />
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                      {/* Reply button — for all messages */}
                       <button
                         className="p-1.5 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
-                        title="Edit message"
-                        onClick={() => {
-                          setEditingMessageId(msg.id);
-                          setEditContent(msg.content);
-                        }}
+                        title="Reply"
+                        onClick={() => setReplyingTo(msg)}
                       >
                         <svg
                           className="w-3.5 h-3.5"
@@ -1044,41 +1184,66 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
-                            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+                            d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
                           />
                         </svg>
                       </button>
-                      <button
-                        className="p-1.5 rounded-md hover:bg-danger/20 text-text-muted hover:text-danger transition-colors cursor-pointer"
-                        title="Delete message"
-                        onClick={() => {
-                          // Optimistic delete
-                          useStore.getState().removeMessage(msg.id);
-                          const ws = wsRef.current;
-                          if (ws && ws.readyState === WebSocket.OPEN) {
-                            const deleteMsg: WsClientMessage = {
-                              type: "delete_message",
-                              message_id: msg.id,
-                              channel_id: msg.channelId,
-                            };
-                            ws.send(JSON.stringify(deleteMsg));
-                          }
-                        }}
-                      >
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
-                          />
-                        </svg>
-                      </button>
+                      {isOwnMessage && (
+                        <>
+                          <button
+                            className="p-1.5 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                            title="Edit message"
+                            onClick={() => {
+                              setEditingMessageId(msg.id);
+                              setEditContent(msg.content);
+                            }}
+                          >
+                            <svg
+                              className="w-3.5 h-3.5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+                              />
+                            </svg>
+                          </button>
+                          <button
+                            className="p-1.5 rounded-md hover:bg-danger/20 text-text-muted hover:text-danger transition-colors cursor-pointer"
+                            title="Delete message"
+                            onClick={() => {
+                              useStore.getState().removeMessage(msg.id);
+                              const ws = wsRef.current;
+                              if (ws && ws.readyState === WebSocket.OPEN) {
+                                const deleteMsg: WsClientMessage = {
+                                  type: "delete_message",
+                                  message_id: msg.id,
+                                  channel_id: msg.channelId,
+                                };
+                                ws.send(JSON.stringify(deleteMsg));
+                              }
+                            }}
+                          >
+                            <svg
+                              className="w-3.5 h-3.5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                              />
+                            </svg>
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                   {showHeader && (
@@ -1205,10 +1370,127 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                       </div>
                     </div>
                   ) : (
-                    <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
-                      <MessageContent
-                        content={msg.content}
-                        server={activeServer!}
+                    <div className="pl-13">
+                      {/* Quoted replied message */}
+                      {msg.repliedMessage && (
+                        <div
+                          className="flex items-center gap-2 mb-1 px-3 py-1.5 border-l-2 border-accent/60 bg-bg-surface/40 rounded-r-lg cursor-pointer hover:bg-bg-surface/70 transition-colors"
+                          onClick={() => {
+                            const idx = messages.findIndex(
+                              (m) => m.id === msg.repliedMessage!.id,
+                            );
+                            if (idx >= 0) {
+                              virtuosoRef.current?.scrollToIndex({
+                                index: idx,
+                                align: "center",
+                                behavior: "smooth",
+                              });
+                            }
+                          }}
+                        >
+                          <svg
+                            className="w-3 h-3 text-accent/60 flex-shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+                            />
+                          </svg>
+                          <span className="text-[11px] text-accent font-semibold">
+                            @{msg.repliedMessage.userName}
+                          </span>
+                          <span className="text-[11px] text-text-muted truncate">
+                            {msg.repliedMessage.content}
+                          </span>
+                        </div>
+                      )}
+                      <div className="text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
+                        <MessageContent
+                          content={msg.content}
+                          server={activeServer!}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Reactions */}
+                  {msg.reactions && msg.reactions.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2 ml-11">
+                      {msg.reactions.map((g) => {
+                        const hasOwn = g.user_ids.includes(
+                          activeServer?.config.userId || "",
+                        );
+                        return (
+                          <button
+                            key={g.emoji}
+                            title={`${g.emoji} (${g.count})`}
+                            onClick={() =>
+                              handleToggleReaction(msg.id, g.emoji)
+                            }
+                            className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all duration-200 hover:scale-105 active:scale-95 ${
+                              hasOwn
+                                ? "bg-primary/20 border-primary/40 text-primary shadow-sm shadow-primary/10"
+                                : "bg-bg-surface/40 border-border/40 text-text-muted hover:bg-bg-surface/60 hover:border-border/60"
+                            }`}
+                          >
+                            <span className="text-[14px] leading-none drop-shadow-sm select-none">
+                              {g.emoji.startsWith(":") ? (
+                                <EmojiImage
+                                  name={g.emoji.slice(1, -1)}
+                                  server={activeServer!}
+                                  className="w-4 h-4 object-contain"
+                                />
+                              ) : (
+                                g.emoji
+                              )}
+                            </span>
+                            <span className="min-w-[8px] text-center tabular-nums">
+                              {g.count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                      {/* Add reaction button (+ icon) */}
+                      <button
+                        className="px-2 py-0.5 rounded-lg border border-border/30 bg-bg-surface/20 text-text-muted/60 hover:text-text-muted hover:bg-bg-surface/40 hover:border-border/50 transition-all flex items-center justify-center cursor-pointer"
+                        title="Add reaction"
+                        onClick={() => setReactionPickerMessageId(msg.id)}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2.5}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 4.5v15m7.5-7.5h-15"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Emoji Picker for this message */}
+                  {reactionPickerMessageId === msg.id && (
+                    <div className="absolute z-50 mt-1 ml-11">
+                      <EmojiPicker
+                        serverHost={activeServer!.config.host!}
+                        serverPort={activeServer!.config.port!}
+                        authToken={activeServer!.config.authToken}
+                        guildId={activeServer!.config.guildId}
+                        onSelect={(emoji) => {
+                          handleToggleReaction(msg.id, emoji);
+                          setReactionPickerMessageId(null);
+                        }}
+                        onClose={() => setReactionPickerMessageId(null)}
                       />
                     </div>
                   )}
@@ -1241,6 +1523,54 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
             </>
           )}
         </div>
+        {/* Reply preview bar */}
+        {replyingTo && (
+          <div className="flex items-center gap-2 bg-bg-secondary/80 border border-border/50 rounded-t-xl px-4 py-2 -mb-1">
+            <svg
+              className="w-4 h-4 text-accent flex-shrink-0"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+              />
+            </svg>
+            <span className="text-xs text-text-muted truncate flex-1">
+              Replying to{" "}
+              <span className="font-semibold text-accent">
+                @{replyingTo.userName}
+              </span>{" "}
+              <span className="text-text-muted/60">
+                {replyingTo.content.length > 80
+                  ? replyingTo.content.slice(0, 80) + "…"
+                  : replyingTo.content}
+              </span>
+            </span>
+            <button
+              className="p-1 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+              onClick={() => setReplyingTo(null)}
+              title="Cancel reply"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18 18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        )}
         <div className="bg-bg-secondary border border-border/50 rounded-2xl flex items-end shadow-lg focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all">
           {/* File upload button */}
           {isAuthenticated && (

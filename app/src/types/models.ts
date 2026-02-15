@@ -19,8 +19,23 @@ export interface Message {
   content: string;
   createdAt: string;
   editedAt?: string | null;
+  replyTo?: string | null;
+  repliedMessage?: RepliedMessage | null;
   attachments?: Attachment[];
   isBot?: boolean;
+  reactions?: ReactionGroup[];
+}
+
+export interface ReactionGroup {
+  emoji: string;
+  count: number;
+  user_ids: string[];
+}
+
+export interface RepliedMessage {
+  id: string;
+  content: string;
+  userName: string;
 }
 
 export interface Attachment {
@@ -133,6 +148,11 @@ export interface ApiMessage {
   avatar_url?: string | null;
   content?: string;
   created_at?: string;
+  edited_at?: string | null;
+  is_bot?: boolean;
+  reply_to?: string | null;
+  replied_message?: { id: string; content: string; user_name: string } | null;
+  reactions?: ReactionGroup[];
 }
 
 // ─── Bots ───
