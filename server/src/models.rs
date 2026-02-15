@@ -279,6 +279,10 @@ pub enum WsClientMessage {
         #[serde(default)]
         reply_to: Option<String>,
     },
+    #[serde(rename = "typing_start")]
+    TypingStart {
+        channel_id: String,
+    },
     #[serde(rename = "edit_message")]
     EditMessage {
         message_id: String,
@@ -383,6 +387,12 @@ pub enum WsServerMessage {
         channel_id: String,
         user_id: String,
         emoji: String,
+    },
+    #[serde(rename = "typing_start")]
+    TypingStart {
+        channel_id: String,
+        user_id: String,
+        user_name: String,
     },
     #[serde(rename = "user_joined")]
     UserJoined {

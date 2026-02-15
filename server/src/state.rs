@@ -76,6 +76,8 @@ pub struct AppState {
     pub setup_key: Arc<Mutex<Option<String>>>,
     /// Rate limiter for auth endpoints (login/register)
     pub auth_rate_limiter: Arc<RateLimiter>,
+    /// last typing event: (channel_id, user_id) -> Instant
+    pub typing_limits: Arc<DashMap<(String, String), Instant>>,
 }
 
 impl AppState {
@@ -93,6 +95,7 @@ impl AppState {
             external_port,
             setup_key: Arc::new(Mutex::new(None)),
             auth_rate_limiter: Arc::new(RateLimiter::new(10, 60)), // 10 req/min per IP
+            typing_limits: Arc::new(DashMap::new()),
         }
     }
 
@@ -214,5 +217,27 @@ impl AppState {
     /// Remove broadcast channels that have no active subscribers (WARN-3: prevent memory leak)
     pub fn cleanup_empty_channels(&self) {
         self.channels.retain(|_, tx| tx.receiver_count() > 0);
+    }
+
+    /// Check if a user is allowed to send a typing event (5s cooldown)
+    pub fn check_typing_limit(&self, channel_id: &str, user_id: &str) -> bool {
+        let now = Instant::now();
+        let key = (channel_id.to_string(), user_id.to_string());
+        
+        let mut entry = self.typing_limits.entry(key).or_insert(Instant::now());
+        if now.duration_since(*entry.value()).as_secs() >= 5 || now == *entry.value() {
+            *entry.value_mut() = now;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Periodically clean up old typing limit entries
+    pub fn cleanup_typing_limits(&self) {
+        let now = Instant::now();
+        self.typing_limits.retain(|_, last_time| {
+            now.duration_since(*last_time).as_secs() < 30
+        });
     }
 }

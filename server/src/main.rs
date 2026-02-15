@@ -272,6 +272,7 @@ async fn main() {
             interval.tick().await;
             cleanup_state.cleanup_empty_channels();
             cleanup_state.auth_rate_limiter.cleanup();
+            cleanup_state.cleanup_typing_limits();
         }
     });
 

@@ -63,7 +63,8 @@ export type WsClientMessage =
       type: "delete_message";
       message_id: string;
       channel_id: string;
-    };
+    }
+  | { type: "typing_start"; channel_id: string };
 
 export type WsServerMessage =
   | { type: "identity"; user_id: string }
@@ -109,6 +110,12 @@ export type WsServerMessage =
       channel_id: string;
       user_id: string;
       emoji: string;
+    }
+  | {
+      type: "typing_start";
+      channel_id: string;
+      user_id: string;
+      user_name: string;
     }
   | {
       type: "user_joined";

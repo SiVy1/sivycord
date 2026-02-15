@@ -70,7 +70,7 @@ interface AppState {
     pttKey: string;
   };
   soundSettings: {
-    joinSound: string | null; // null = default, string = custom audio URL/data
+    joinSound: string | null;
     leaveSound: string | null;
     muteSound: string | null;
     deafenSound: string | null;
@@ -79,11 +79,25 @@ interface AppState {
   setVoiceMembers: (members: VoicePeer[]) => void;
   addVoiceMember: (peer: VoicePeer) => void;
   removeVoiceMember: (userId: string) => void;
+  updateVoiceStatus: (
+    userId: string,
+    isMuted: boolean,
+    isDeafened: boolean,
+  ) => void;
   addScreenShare: (userId: string, stream: MediaStream) => void;
   removeScreenShare: (userId: string) => void;
   updateVoiceSettings: (settings: Partial<AppState["voiceSettings"]>) => void;
   updateSoundSettings: (settings: Partial<AppState["soundSettings"]>) => void;
   updateServerConfig: (serverId: string, config: Partial<ServerConfig>) => void;
+
+  // Typing
+  typingUsers: Record<
+    string,
+    Record<string, { name: string; timestamp: number }>
+  >;
+  setTyping: (channelId: string, userId: string, userName: string) => void;
+  removeTyping: (channelId: string, userId: string) => void;
+  clearExpiredTyping: () => void;
   // Iroh P2P
   nodeId: string | null;
   irohReady: boolean;
@@ -280,6 +294,14 @@ export const useStore = create<AppState>()(
         muteSound: null,
         deafenSound: null,
       },
+      updateVoiceStatus: (userId, isMuted, isDeafened) =>
+        set((s) => ({
+          voiceMembers: s.voiceMembers.map((m) =>
+            m.user_id === userId
+              ? { ...m, is_muted: isMuted, is_deafened: isDeafened }
+              : m,
+          ),
+        })),
       updateVoiceSettings: (settings) =>
         set((s) => ({ voiceSettings: { ...s.voiceSettings, ...settings } })),
       updateSoundSettings: (settings) =>
@@ -292,6 +314,52 @@ export const useStore = create<AppState>()(
               : srv,
           ),
         })),
+
+      // Typing
+      typingUsers: {},
+      setTyping: (channelId, userId, userName) =>
+        set((state) => {
+          const channelTyping = { ...(state.typingUsers[channelId] || {}) };
+          channelTyping[userId] = { name: userName, timestamp: Date.now() };
+          return {
+            typingUsers: { ...state.typingUsers, [channelId]: channelTyping },
+          };
+        }),
+      removeTyping: (channelId, userId) =>
+        set((state) => {
+          const channelTyping = { ...(state.typingUsers[channelId] || {}) };
+          delete channelTyping[userId];
+          return {
+            typingUsers: { ...state.typingUsers, [channelId]: channelTyping },
+          };
+        }),
+      clearExpiredTyping: () =>
+        set((state) => {
+          const now = Date.now();
+          const newTyping = { ...state.typingUsers };
+          let changed = false;
+
+          for (const [cid, users] of Object.entries(newTyping)) {
+            const newUsers = { ...users };
+            let channelChanged = false;
+            for (const [uid, data] of Object.entries(newUsers)) {
+              if (now - data.timestamp > 8000) {
+                delete newUsers[uid];
+                channelChanged = true;
+                changed = true;
+              }
+            }
+            if (channelChanged) {
+              if (Object.keys(newUsers).length === 0) {
+                delete newTyping[cid];
+              } else {
+                newTyping[cid] = newUsers;
+              }
+            }
+          }
+
+          return changed ? { typingUsers: newTyping } : state;
+        }),
       // Iroh
       nodeId: null,
       irohReady: false,

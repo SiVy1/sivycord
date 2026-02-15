@@ -83,6 +83,7 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
     string | null
   >(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const lastTypingSentRef = useRef<number>(0);
   const wsRef = useRef<WebSocket | null>(null);
   const prevChannelRef = useRef<string | null>(null);
   const retriesRef = useRef(0);
@@ -550,6 +551,10 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           useStore.getState().setVoiceMembers(updated);
         } else if (data.type === "voice_talking") {
           setTalkingDirect(data.user_id, data.talking);
+        } else if (data.type === "typing_start") {
+          useStore
+            .getState()
+            .setTyping(data.channel_id, data.user_id, data.user_name);
         }
       } catch (err) {
         console.error("Failed to parse WS message:", err);
@@ -581,6 +586,14 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
       setWsStatus("disconnected");
     };
   }, [connectWs]);
+
+  // Periodic cleanup for typing indicators
+  useEffect(() => {
+    const interval = setInterval(() => {
+      useStore.getState().clearExpiredTyping();
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Switch channel subscription
   useEffect(() => {
@@ -1571,6 +1584,28 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
             </button>
           </div>
         )}
+
+        {/* Typing Indicators Display */}
+        {activeChannelId &&
+          useStore.getState().typingUsers[activeChannelId] && (
+            <div className="px-4 py-1 flex items-center gap-2">
+              <div className="flex gap-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-[bounce_1s_infinite_0ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-[bounce_1s_infinite_200ms]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-accent/60 animate-[bounce_1s_infinite_400ms]" />
+              </div>
+              <span className="text-[11px] text-text-muted font-medium">
+                {Object.values(useStore.getState().typingUsers[activeChannelId])
+                  .map((u) => u.name)
+                  .join(", ")}{" "}
+                {Object.keys(useStore.getState().typingUsers[activeChannelId])
+                  .length === 1
+                  ? "is typing..."
+                  : "are typing..."}
+              </span>
+            </div>
+          )}
+
         <div className="bg-bg-secondary border border-border/50 rounded-2xl flex items-end shadow-lg focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all">
           {/* File upload button */}
           {isAuthenticated && (
@@ -1607,9 +1642,27 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           />
           <textarea
             value={input}
-            onChange={(e) =>
-              setInput(e.target.value.slice(0, MAX_MESSAGE_LENGTH))
-            }
+            onChange={(e) => {
+              const val = e.target.value.slice(0, MAX_MESSAGE_LENGTH);
+              setInput(val);
+
+              // Typing Start Event
+              const now = Date.now();
+              if (
+                val.length > 0 &&
+                now - lastTypingSentRef.current > 5000 &&
+                wsRef.current?.readyState === WebSocket.OPEN &&
+                activeChannelId
+              ) {
+                lastTypingSentRef.current = now;
+                wsRef.current.send(
+                  JSON.stringify({
+                    type: "typing_start",
+                    channel_id: activeChannelId,
+                  }),
+                );
+              }
+            }}
             onKeyDown={handleKeyDown}
             placeholder={
               activeServer?.type === "p2p"

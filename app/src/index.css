@@ -57,4 +57,14 @@
   ::-webkit-scrollbar-thumb:hover {
     background: var(--color-border-light);
   }
+
+  @keyframes bounce {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-4px);
+    }
+  }
 }

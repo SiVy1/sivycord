@@ -164,6 +164,7 @@ async fn handle_socket(
                                         WsServerMessage::VoiceOffer { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
                                         WsServerMessage::VoiceAnswer { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
                                         WsServerMessage::IceCandidate { channel_id, target_user_id, .. } => channel_id == &cid && (target_user_id == &uid || target_user_id == "*"),
+                                        WsServerMessage::TypingStart { channel_id, user_id, .. } => channel_id == &cid && user_id != &uid,
                                         _ => true,
                                     };
                                     if should_send {
@@ -401,6 +402,21 @@ async fn handle_socket(
                             content: content.clone(),
                             edited_at: chrono::Utc::now(),
                         });
+                    }
+
+                    Ok(WsClientMessage::TypingStart { channel_id }) => {
+                        if !is_authenticated || channel_id.is_empty() {
+                            continue;
+                        }
+
+                        if state.check_typing_limit(&channel_id, &user_id) {
+                            let tx = state.get_channel_tx(&channel_id);
+                            let _ = tx.send(WsServerMessage::TypingStart {
+                                channel_id,
+                                user_id: user_id.clone(),
+                                user_name: user_name.clone(),
+                            });
+                        }
                     }
 
                     // ─── Voice signaling ───
