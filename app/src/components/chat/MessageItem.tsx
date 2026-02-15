@@ -101,7 +101,7 @@ export function MessageItem({
     };
   }, [activeServer, activeUserId]);
 
-  const timeOutUser = async (userId: string) => {
+  const timeOutUser = async (userId: string, duration: number = 300) => {
     if (!activeServer) return;
     if (canTimeout) {
       const ws = wsRef.current;
@@ -109,7 +109,7 @@ export function MessageItem({
         const timeoutMsg: WsClientMessage = {
           type: "timeout_user",
           user_id: userId,
-          duration_seconds: 300,
+          duration_seconds: duration,
         };
         ws.send(JSON.stringify(timeoutMsg));
       }

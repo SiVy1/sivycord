@@ -77,10 +77,14 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
   // We need a stable ref for onMessage to break the cycle.
   const onMessageRef = useRef<((data: any) => void) | null>(null);
 
+  const handleConnectionMessage = useCallback((data: any) => {
+    onMessageRef.current?.(data);
+  }, []);
+
   const { wsRef, wsStatus } = useChatConnection({
     activeServerId,
     activeChannelId,
-    onMessage: (data) => onMessageRef.current?.(data),
+    onMessage: handleConnectionMessage,
   });
 
   const { e2eReady, channelKeysRef } = useChatE2E(

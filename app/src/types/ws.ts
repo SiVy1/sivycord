@@ -182,6 +182,12 @@ export type WsServerMessage =
       is_deafened: boolean;
     }
   | {
+      type: "user_timedout";
+      user_id: string;
+      duration_seconds: number;
+      reason?: string;
+    }
+  | {
       type: "voice_state_sync";
       voice_states: VoicePeer[];
     };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { EmojiPicker } from "../EmojiPicker";
 import { type ServerEntry, type Message } from "../../types";
 import { useStore } from "../../store";
@@ -43,6 +43,17 @@ export function ChatInput({
   const activeChannel = useStore((s) =>
     s.channels.find((c) => c.id === activeChannelId),
   );
+  const timeoutFinishTime = useStore((s) => s.timeoutFinishTime);
+  const [now, setNow] = useState(Date.now());
+
+  // Update timer every second if timed out
+  useEffect(() => {
+    if (!timeoutFinishTime || timeoutFinishTime < now) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [timeoutFinishTime, now]);
+
+  const isTimedOut = timeoutFinishTime ? timeoutFinishTime > now : false;
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -78,6 +89,31 @@ export function ChatInput({
       />
 
       <ChatTypingIndicators activeChannelId={activeChannelId} />
+
+      {isTimedOut && timeoutFinishTime && (
+        <div className="mb-2 bg-red-500/10 border border-red-500/20 text-red-500 text-xs px-3 py-1.5 rounded flex items-center gap-2">
+          <svg
+            className="w-4 h-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span>
+            You are timed out. You can send messages again in{" "}
+            <span className="font-bold">
+              {Math.ceil((timeoutFinishTime - now) / 1000)}s
+            </span>
+            .
+          </span>
+        </div>
+      )}
 
       <div className="bg-bg-secondary border border-border/50 rounded-2xl flex items-end shadow-lg focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all">
         <ChatFileUpload
@@ -118,11 +154,14 @@ export function ChatInput({
                 ? "Log in to send messages"
                 : wsStatus !== "connected"
                   ? "Reconnecting..."
-                  : `Message #${activeChannel?.name || "channel"}`
+                  : isTimedOut
+                    ? `You are timed out for ${Math.ceil((timeoutFinishTime! - now) / 1000)}s`
+                    : `Message #${activeChannel?.name || "channel"}`
           }
           disabled={
-            activeServer?.type !== "p2p" &&
-            (wsStatus !== "connected" || !isAuthenticated)
+            isTimedOut ||
+            (activeServer?.type !== "p2p" &&
+              (wsStatus !== "connected" || !isAuthenticated))
           }
           rows={1}
           className="flex-1 bg-transparent resize-none px-4 py-3.5 text-sm text-text-primary placeholder:text-text-muted outline-none disabled:opacity-50"

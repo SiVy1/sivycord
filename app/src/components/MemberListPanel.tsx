@@ -15,7 +15,12 @@ interface MemberListPanelProps {
 function membersEqual(a: MemberInfo[], b: MemberInfo[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
-    if (a[i].user_id !== b[i].user_id || a[i].is_online !== b[i].is_online || a[i].display_name !== b[i].display_name) return false;
+    if (
+      a[i].user_id !== b[i].user_id ||
+      a[i].is_online !== b[i].is_online ||
+      a[i].display_name !== b[i].display_name
+    )
+      return false;
   }
   return true;
 }
@@ -89,7 +94,9 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
       }));
 
       // Sort: online first
-      data.sort((a, b) => (a.is_online === b.is_online ? 0 : a.is_online ? -1 : 1));
+      data.sort((a, b) =>
+        a.is_online === b.is_online ? 0 : a.is_online ? -1 : 1,
+      );
 
       if (!membersEqual(membersRef.current, data)) {
         membersRef.current = data;

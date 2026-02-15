@@ -197,6 +197,12 @@ export function useMessageSocket({
             pinned_at: data.pinned ? data.pinned_at : undefined,
             pinned_by: data.pinned ? data.pinned_by : undefined,
           });
+        } else if (data.type === "user_timedout") {
+          const myUserId = activeServer?.config.userId;
+          if (myUserId && data.user_id === myUserId) {
+            const finishTime = Date.now() + data.duration_seconds * 1000;
+            useStore.getState().setTimeoutFinishTime(finishTime);
+          }
         }
       } catch (err) {
         console.error("Failed to process WS message:", err);

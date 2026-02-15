@@ -112,12 +112,16 @@ interface AppState {
   startP2PVoice: (docId: string) => Promise<void>;
   stopP2PVoice: () => Promise<void>;
 
+  // Timeout
+  timeoutFinishTime: number | null;
+  setTimeoutFinishTime: (time: number | null) => void;
+
   logout: () => void;
 }
 
 export const useStore = create<AppState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       // User
       displayName: "",
       setDisplayName: (name) => set({ displayName: name }),
@@ -145,6 +149,7 @@ export const useStore = create<AppState>()(
             // Don't reset currentUser if we have a stored session for this server
             // Actually, we'll let a sidebar effect fetch the user profile if authToken exists
             currentUser: null,
+            timeoutFinishTime: null,
           };
         }),
       updateServerAuth: (serverId, authToken, userId) =>
@@ -412,7 +417,7 @@ export const useStore = create<AppState>()(
           },
         };
         // Publish DID identity to the new server
-        const dn = useStore.getState().displayName || name;
+        const dn = get().displayName || name;
         try {
           await invoke("set_identity", {
             docId: namespaceId,
@@ -454,7 +459,7 @@ export const useStore = create<AppState>()(
           },
         };
         // Publish DID identity to the joined server (non-critical)
-        const dn = useStore.getState().displayName || name;
+        const dn = get().displayName || name;
         try {
           await invoke("set_identity", {
             docId: namespaceId,
@@ -473,8 +478,7 @@ export const useStore = create<AppState>()(
         try {
           const { invoke } = await import("@tauri-apps/api/core");
           // Use MoQ voice with channel-specific topic
-          const channelId =
-            useStore.getState().voiceChannelId || "voice-lounge";
+          const channelId = get().voiceChannelId || "voice-lounge";
           await invoke("moq_join_voice", { docId, channelId });
           await invoke("moq_start_voice", { docId, channelId });
           set({ p2pVoiceActive: true });
@@ -487,7 +491,7 @@ export const useStore = create<AppState>()(
           const { invoke } = await import("@tauri-apps/api/core");
           await invoke("stop_voice");
           // Also remove voice presence from the doc
-          const state = useStore.getState();
+          const state = get();
           const server = state.servers.find(
             (s) => s.id === state.activeServerId,
           );
@@ -502,6 +506,10 @@ export const useStore = create<AppState>()(
         }
         set({ p2pVoiceActive: false });
       },
+
+      // Timeout
+      timeoutFinishTime: null,
+      setTimeoutFinishTime: (time) => set({ timeoutFinishTime: time }),
 
       logout: () =>
         set((s) => {
@@ -520,12 +528,13 @@ export const useStore = create<AppState>()(
                 : srv,
             ),
             currentUser: null,
+            timeoutFinishTime: null,
           };
         }),
       // Roles cache
       rolesByServer: {},
       fetchRolesForServer: async (serverId: string) => {
-        const state = useStore.getState();
+        const state = get();
         const server = state.servers.find((s) => s.id === serverId);
         if (!server) return [];
         // Return cached if present
@@ -565,6 +574,7 @@ export const useStore = create<AppState>()(
         activeChannelId: state.activeChannelId,
         voiceSettings: state.voiceSettings,
         soundSettings: state.soundSettings,
+        timeoutFinishTime: state.timeoutFinishTime,
       }),
     },
   ),

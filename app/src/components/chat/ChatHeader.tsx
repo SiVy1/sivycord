@@ -23,7 +23,7 @@ export function ChatHeader({
   e2eReady,
 }: ChatHeaderProps) {
   const nodeId = useStore((s) => s.nodeId);
-
+  console.log(wsStatus, "wsStatus in ChatHeader");
   return (
     <div className="h-14 flex items-center px-6 border-b border-border/50 gap-3 bg-bg-primary/80 backdrop-blur-md sticky top-0 z-10">
       <span className="text-xl font-medium text-text-muted">#</span>
