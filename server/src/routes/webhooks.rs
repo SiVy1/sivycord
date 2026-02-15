@@ -186,6 +186,8 @@ pub async fn execute_webhook(
         edited_at: Set(None),
         deleted_at: Set(None),
         reply_to: Set(None),
+        pinned_at: Set(None),
+        pinned_by: Set(None),
     };
 
     message::Entity::insert(new_msg)

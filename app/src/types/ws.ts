@@ -129,6 +129,14 @@ export type WsServerMessage =
       user_id: string;
       user_name: string;
     }
+  | {
+      type: "message_pinned";
+      channel_id: string;
+      message_id: string;
+      pinned: boolean;
+      pinned_at?: string;
+      pinned_by?: string;
+    }
   | { type: "error"; message: string }
   | {
       type: "voice_peer_joined";

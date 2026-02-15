@@ -24,6 +24,8 @@ export interface Message {
   attachments?: Attachment[];
   isBot?: boolean;
   reactions?: ReactionGroup[];
+  pinned_at?: string | null;
+  pinned_by?: string | null;
 }
 
 export interface ReactionGroup {
@@ -36,6 +38,11 @@ export interface RepliedMessage {
   id: string;
   content: string;
   userName: string;
+  edited_at?: string;
+  deleted_at?: string;
+  reply_to?: string;
+  pinned_at?: string;
+  pinned_by?: string;
 }
 
 export interface Attachment {
@@ -153,6 +160,14 @@ export interface ApiMessage {
   reply_to?: string | null;
   replied_message?: { id: string; content: string; user_name: string } | null;
   reactions?: ReactionGroup[];
+  pinned_at?: string;
+  pinned_by?: string;
+}
+
+export interface MessageWithReply {
+  message: Message;
+  replied_message: RepliedMessage | null;
+  reactions: ReactionGroup[];
 }
 
 // ─── Bots ───

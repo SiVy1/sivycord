@@ -16,6 +16,10 @@ import {
   type ChatEntry,
   type ApiMessage,
   type ChannelKeysResponse,
+  type Message,
+  type Channel,
+  type ServerEntry,
+  type MessageWithReply,
   getApiUrl,
   getWsUrl,
 } from "../types";
@@ -82,6 +86,9 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<
     string | null
   >(null);
+  const [showPins, setShowPins] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState<MessageWithReply[]>([]);
+  const [isLoadingPins, setIsLoadingPins] = useState(false);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const lastTypingSentRef = useRef<number>(0);
   const wsRef = useRef<WebSocket | null>(null);
@@ -555,6 +562,11 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           useStore
             .getState()
             .setTyping(data.channel_id, data.user_id, data.user_name);
+        } else if (data.type === "message_pinned") {
+          useStore.getState().updateMessage(data.message_id, {
+            pinned_at: data.pinned ? data.pinned_at : undefined,
+            pinned_by: data.pinned ? data.pinned_by : undefined,
+          });
         }
       } catch (err) {
         console.error("Failed to parse WS message:", err);
@@ -613,6 +625,56 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
     );
     prevChannelRef.current = activeChannelId;
   }, [activeChannelId]);
+
+  const handleTogglePin = async (messageId: string, isPinned: boolean) => {
+    if (!activeServer?.config.host || !activeServer?.config.port) return;
+    const url = `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/messages/${messageId}/pin`;
+    try {
+      const resp = await fetch(url, {
+        method: isPinned ? "DELETE" : "POST",
+        headers: {
+          Authorization: `Bearer ${activeServer.config.authToken}`,
+        },
+      });
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+    } catch (err) {
+      console.error("Failed to toggle pin:", err);
+    }
+  };
+
+  const fetchPins = async () => {
+    if (
+      !activeServer?.config.host ||
+      !activeServer?.config.port ||
+      !activeChannelId
+    )
+      return;
+    setIsLoadingPins(true);
+    const url = `${getApiUrl(activeServer.config.host, activeServer.config.port)}/api/channels/${activeChannelId}/pins`;
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${activeServer.config.authToken}`,
+        },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setPinnedMessages(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch pins:", err);
+    } finally {
+      setIsLoadingPins(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showPins) {
+      fetchPins();
+    }
+  }, [showPins, activeServer, activeChannelId]);
 
   // Load older messages (infinite scroll upward)
   const loadOlderMessages = useCallback(async () => {
@@ -989,6 +1051,31 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                       : "Offline"}
                 </span>
               </div>
+
+              {/* Pins Button */}
+              <button
+                className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                  showPins
+                    ? "bg-accent/20 text-accent"
+                    : "text-text-muted hover:text-text-primary hover:bg-bg-surface/60"
+                }`}
+                title="Pinned Messages"
+                onClick={() => setShowPins(!showPins)}
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
+                  />
+                </svg>
+              </button>
             </>
           )}
           {/* Members toggle button */}
@@ -1257,153 +1344,24 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                           </button>
                         </>
                       )}
-                    </div>
-                  )}
-                  {showHeader && (
-                    <div className="flex items-center gap-3 mb-1">
-                      {avatarUrl && activeServer ? (
-                        <>
-                          {activeServer.type === "legacy" &&
-                            activeServer.config.host &&
-                            activeServer.config.port && (
-                              <img
-                                src={`${getApiUrl(activeServer.config.host, activeServer.config.port)}${avatarUrl}`}
-                                alt={msg.userName}
-                                className="w-10 h-10 rounded-full object-cover shadow-sm bg-bg-surface"
-                              />
-                            )}
-                          {activeServer.type === "p2p" && (
-                            <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-white font-bold">
-                              {msg.userName[0].toUpperCase()}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl bg-bg-surface flex items-center justify-center text-sm font-bold text-accent shadow-sm flex-shrink-0 border border-border/50">
-                          {(msg.userName || "?")[0]?.toUpperCase()}
-                        </div>
-                      )}
-                      <div className="flex items-baseline gap-2.5">
-                        <span className="text-sm font-bold text-text-primary tracking-tight">
-                          {msg.userName || "Unknown"}
-                        </span>
-                        {msg.isBot && (
-                          <span className="text-[9px] font-bold uppercase tracking-wider bg-accent/90 text-white px-1.5 py-0.5 rounded-sm leading-none">
-                            BOT
-                          </span>
-                        )}
-                        <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
-                          {formatTime(msg.createdAt)}
-                        </span>
-                        {msg.editedAt && (
-                          <span
-                            className="text-[10px] text-text-muted italic"
-                            title={`Edited ${formatTime(msg.editedAt)}`}
-                          >
-                            (edited)
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {isEditing ? (
-                    <div className="pl-13 py-1">
-                      <input
-                        className="w-full bg-bg-secondary border border-accent/50 rounded-lg px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
-                        value={editContent}
-                        onChange={(e) => setEditContent(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && !e.shiftKey) {
-                            e.preventDefault();
-                            const trimmed = editContent.trim();
-                            if (trimmed && trimmed !== msg.content) {
-                              // Optimistic edit
-                              useStore.getState().updateMessage(msg.id, {
-                                content: trimmed,
-                                editedAt: new Date().toISOString(),
-                              });
-                              const ws = wsRef.current;
-                              if (ws && ws.readyState === WebSocket.OPEN) {
-                                const editMsg: WsClientMessage = {
-                                  type: "edit_message",
-                                  message_id: msg.id,
-                                  content: trimmed,
-                                };
-                                ws.send(JSON.stringify(editMsg));
-                              }
-                            }
-                            setEditingMessageId(null);
-                            setEditContent("");
-                          } else if (e.key === "Escape") {
-                            setEditingMessageId(null);
-                            setEditContent("");
+                      {/* Pin/Unpin */}
+                      {activeServer?.type !== "p2p" && (
+                        <button
+                          className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                            msg.pinned_at
+                              ? "text-accent bg-accent/10 hover:bg-accent/20"
+                              : "text-text-muted hover:bg-bg-surface/80 hover:text-text-primary"
+                          }`}
+                          title={
+                            msg.pinned_at ? "Unpin message" : "Pin message"
                           }
-                        }}
-                        autoFocus
-                      />
-                      <div className="text-[10px] text-text-muted mt-1">
-                        Escape to{" "}
-                        <span
-                          className="text-text-secondary cursor-pointer hover:underline"
-                          onClick={() => {
-                            setEditingMessageId(null);
-                            setEditContent("");
-                          }}
-                        >
-                          cancel
-                        </span>{" "}
-                        · Enter to{" "}
-                        <span
-                          className="text-text-secondary cursor-pointer hover:underline"
-                          onClick={() => {
-                            const trimmed = editContent.trim();
-                            if (trimmed && trimmed !== msg.content) {
-                              // Optimistic edit
-                              useStore.getState().updateMessage(msg.id, {
-                                content: trimmed,
-                                editedAt: new Date().toISOString(),
-                              });
-                              const ws = wsRef.current;
-                              if (ws && ws.readyState === WebSocket.OPEN) {
-                                ws.send(
-                                  JSON.stringify({
-                                    type: "edit_message",
-                                    message_id: msg.id,
-                                    content: trimmed,
-                                  }),
-                                );
-                              }
-                            }
-                            setEditingMessageId(null);
-                            setEditContent("");
-                          }}
-                        >
-                          save
-                        </span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="pl-13">
-                      {/* Quoted replied message */}
-                      {msg.repliedMessage && (
-                        <div
-                          className="flex items-center gap-2 mb-1 px-3 py-1.5 border-l-2 border-accent/60 bg-bg-surface/40 rounded-r-lg cursor-pointer hover:bg-bg-surface/70 transition-colors"
-                          onClick={() => {
-                            const idx = messages.findIndex(
-                              (m) => m.id === msg.repliedMessage!.id,
-                            );
-                            if (idx >= 0) {
-                              virtuosoRef.current?.scrollToIndex({
-                                index: idx,
-                                align: "center",
-                                behavior: "smooth",
-                              });
-                            }
-                          }}
+                          onClick={() =>
+                            handleTogglePin(msg.id, !!msg.pinned_at)
+                          }
                         >
                           <svg
-                            className="w-3 h-3 text-accent/60 flex-shrink-0"
-                            fill="none"
+                            className="w-3.5 h-3.5"
+                            fill={msg.pinned_at ? "currentColor" : "none"}
                             viewBox="0 0 24 24"
                             stroke="currentColor"
                             strokeWidth={2}
@@ -1411,108 +1369,283 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
-                              d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+                              d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
                             />
                           </svg>
-                          <span className="text-[11px] text-accent font-semibold">
-                            @{msg.repliedMessage.userName}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  <div
+                    className={`${
+                      msg.pinned_at
+                        ? "bg-accent/5 border-l-2 border-accent/40 rounded-r-lg"
+                        : ""
+                    } transition-colors pb-1`}
+                  >
+                    {showHeader && (
+                      <div className="flex items-center gap-3 mb-1">
+                        {avatarUrl && activeServer ? (
+                          <>
+                            {activeServer.type === "legacy" &&
+                              activeServer.config.host &&
+                              activeServer.config.port && (
+                                <img
+                                  src={`${getApiUrl(activeServer.config.host, activeServer.config.port)}${avatarUrl}`}
+                                  alt={msg.userName}
+                                  className="w-10 h-10 rounded-full object-cover shadow-sm bg-bg-surface"
+                                />
+                              )}
+                            {activeServer.type === "p2p" && (
+                              <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-white font-bold">
+                                {msg.userName[0].toUpperCase()}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="w-10 h-10 rounded-xl bg-bg-surface flex items-center justify-center text-sm font-bold text-accent shadow-sm flex-shrink-0 border border-border/50">
+                            {(msg.userName || "?")[0]?.toUpperCase()}
+                          </div>
+                        )}
+                        <div className="flex items-baseline gap-2.5">
+                          <span className="text-sm font-bold text-text-primary tracking-tight">
+                            {msg.userName || "Unknown"}
                           </span>
-                          <span className="text-[11px] text-text-muted truncate">
-                            {msg.repliedMessage.content}
+                          {msg.isBot && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider bg-accent/90 text-white px-1.5 py-0.5 rounded-sm leading-none">
+                              BOT
+                            </span>
+                          )}
+                          <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
+                            {formatTime(msg.createdAt)}
+                          </span>
+                          {msg.editedAt && (
+                            <span
+                              className="text-[10px] text-text-muted italic"
+                              title={`Edited ${formatTime(msg.editedAt)}`}
+                            >
+                              (edited)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {isEditing ? (
+                      <div className="pl-13 py-1">
+                        <input
+                          className="w-full bg-bg-secondary border border-accent/50 rounded-lg px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              const trimmed = editContent.trim();
+                              if (trimmed && trimmed !== msg.content) {
+                                // Optimistic edit
+                                useStore.getState().updateMessage(msg.id, {
+                                  content: trimmed,
+                                  editedAt: new Date().toISOString(),
+                                });
+                                const ws = wsRef.current;
+                                if (ws && ws.readyState === WebSocket.OPEN) {
+                                  const editMsg: WsClientMessage = {
+                                    type: "edit_message",
+                                    message_id: msg.id,
+                                    content: trimmed,
+                                  };
+                                  ws.send(JSON.stringify(editMsg));
+                                }
+                              }
+                              setEditingMessageId(null);
+                              setEditContent("");
+                            } else if (e.key === "Escape") {
+                              setEditingMessageId(null);
+                              setEditContent("");
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <div className="text-[10px] text-text-muted mt-1">
+                          Escape to{" "}
+                          <span
+                            className="text-text-secondary cursor-pointer hover:underline"
+                            onClick={() => {
+                              setEditingMessageId(null);
+                              setEditContent("");
+                            }}
+                          >
+                            cancel
+                          </span>{" "}
+                          · Enter to{" "}
+                          <span
+                            className="text-text-secondary cursor-pointer hover:underline"
+                            onClick={() => {
+                              const trimmed = editContent.trim();
+                              if (trimmed && trimmed !== msg.content) {
+                                // Optimistic edit
+                                useStore.getState().updateMessage(msg.id, {
+                                  content: trimmed,
+                                  editedAt: new Date().toISOString(),
+                                });
+                                const ws = wsRef.current;
+                                if (ws && ws.readyState === WebSocket.OPEN) {
+                                  ws.send(
+                                    JSON.stringify({
+                                      type: "edit_message",
+                                      message_id: msg.id,
+                                      content: trimmed,
+                                    }),
+                                  );
+                                }
+                              }
+                              setEditingMessageId(null);
+                              setEditContent("");
+                            }}
+                          >
+                            save
                           </span>
                         </div>
-                      )}
-                      <div className="text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
-                        <MessageContent
-                          content={msg.content}
-                          server={activeServer!}
+                      </div>
+                    ) : (
+                      <div className="pl-13">
+                        {/* Quoted replied message */}
+                        {msg.repliedMessage && (
+                          <div
+                            className="flex items-center gap-2 mb-1 px-3 py-1.5 border-l-2 border-accent/60 bg-bg-surface/40 rounded-r-lg cursor-pointer hover:bg-bg-surface/70 transition-colors"
+                            onClick={() => {
+                              const idx = messages.findIndex(
+                                (m) => m.id === msg.repliedMessage!.id,
+                              );
+                              if (idx >= 0) {
+                                virtuosoRef.current?.scrollToIndex({
+                                  index: idx,
+                                  align: "center",
+                                  behavior: "smooth",
+                                });
+                              }
+                            }}
+                          >
+                            <svg
+                              className="w-3 h-3 text-accent/60 flex-shrink-0"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth={2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
+                              />
+                            </svg>
+                            <span className="text-[11px] text-accent font-semibold">
+                              @{msg.repliedMessage.userName}
+                            </span>
+                            <span className="text-[11px] text-text-muted truncate">
+                              {msg.repliedMessage.content}
+                            </span>
+                          </div>
+                        )}
+                        <div className="text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
+                          <MessageContent
+                            content={msg.content}
+                            server={activeServer!}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Reactions */}
+                    {msg.reactions && msg.reactions.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2 ml-11">
+                        {msg.reactions.map((g) => {
+                          const hasOwn = g.user_ids.includes(
+                            activeServer?.config.userId || "",
+                          );
+                          return (
+                            <button
+                              key={g.emoji}
+                              title={`${g.emoji} (${g.count})`}
+                              onClick={() =>
+                                handleToggleReaction(msg.id, g.emoji)
+                              }
+                              className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all duration-200 hover:scale-105 active:scale-95 ${
+                                hasOwn
+                                  ? "bg-primary/20 border-primary/40 text-primary shadow-sm shadow-primary/10"
+                                  : "bg-bg-surface/40 border-border/40 text-text-muted hover:bg-bg-surface/60 hover:border-border/60"
+                              }`}
+                            >
+                              <span className="text-[14px] leading-none drop-shadow-sm select-none">
+                                {g.emoji.startsWith(":") ? (
+                                  <EmojiImage
+                                    name={g.emoji.slice(1, -1)}
+                                    server={activeServer!}
+                                    className="w-4 h-4 object-contain"
+                                  />
+                                ) : (
+                                  g.emoji
+                                )}
+                              </span>
+                              <span className="min-w-[8px] text-center tabular-nums">
+                                {g.count}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {/* Add reaction button (+ icon) */}
+                        <button
+                          className="px-2 py-0.5 rounded-lg border border-border/30 bg-bg-surface/20 text-text-muted/60 hover:text-text-muted hover:bg-bg-surface/40 hover:border-border/50 transition-all flex items-center justify-center cursor-pointer"
+                          title="Add reaction"
+                          onClick={() => setReactionPickerMessageId(msg.id)}
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2.5}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M12 4.5v15m7.5-7.5h-15"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Emoji Picker for this message */}
+                    {reactionPickerMessageId === msg.id && (
+                      <div className="absolute z-50 mt-1 ml-11">
+                        <EmojiPicker
+                          serverHost={activeServer!.config.host!}
+                          serverPort={activeServer!.config.port!}
+                          authToken={activeServer!.config.authToken}
+                          guildId={activeServer!.config.guildId}
+                          onSelect={(emoji) => {
+                            handleToggleReaction(msg.id, emoji);
+                            setReactionPickerMessageId(null);
+                          }}
+                          onClose={() => setReactionPickerMessageId(null)}
                         />
                       </div>
-                    </div>
-                  )}
-
-                  {/* Reactions */}
-                  {msg.reactions && msg.reactions.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2 ml-11">
-                      {msg.reactions.map((g) => {
-                        const hasOwn = g.user_ids.includes(
-                          activeServer?.config.userId || "",
-                        );
-                        return (
-                          <button
-                            key={g.emoji}
-                            title={`${g.emoji} (${g.count})`}
-                            onClick={() =>
-                              handleToggleReaction(msg.id, g.emoji)
-                            }
-                            className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all duration-200 hover:scale-105 active:scale-95 ${
-                              hasOwn
-                                ? "bg-primary/20 border-primary/40 text-primary shadow-sm shadow-primary/10"
-                                : "bg-bg-surface/40 border-border/40 text-text-muted hover:bg-bg-surface/60 hover:border-border/60"
-                            }`}
-                          >
-                            <span className="text-[14px] leading-none drop-shadow-sm select-none">
-                              {g.emoji.startsWith(":") ? (
-                                <EmojiImage
-                                  name={g.emoji.slice(1, -1)}
-                                  server={activeServer!}
-                                  className="w-4 h-4 object-contain"
-                                />
-                              ) : (
-                                g.emoji
-                              )}
-                            </span>
-                            <span className="min-w-[8px] text-center tabular-nums">
-                              {g.count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                      {/* Add reaction button (+ icon) */}
-                      <button
-                        className="px-2 py-0.5 rounded-lg border border-border/30 bg-bg-surface/20 text-text-muted/60 hover:text-text-muted hover:bg-bg-surface/40 hover:border-border/50 transition-all flex items-center justify-center cursor-pointer"
-                        title="Add reaction"
-                        onClick={() => setReactionPickerMessageId(msg.id)}
-                      >
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                          strokeWidth={2.5}
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M12 4.5v15m7.5-7.5h-15"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Emoji Picker for this message */}
-                  {reactionPickerMessageId === msg.id && (
-                    <div className="absolute z-50 mt-1 ml-11">
-                      <EmojiPicker
-                        serverHost={activeServer!.config.host!}
-                        serverPort={activeServer!.config.port!}
-                        authToken={activeServer!.config.authToken}
-                        guildId={activeServer!.config.guildId}
-                        onSelect={(emoji) => {
-                          handleToggleReaction(msg.id, emoji);
-                          setReactionPickerMessageId(null);
-                        }}
-                        onClose={() => setReactionPickerMessageId(null)}
-                      />
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               );
             }}
           />
         )}
       </div>
+
+      {/* Pins Sidebar Panel */}
+      {showPins && (
+        <div className="w-80 bg-bg-secondary border-l border-border/50 flex-shrink-0 overflow-y-auto">
+          <PinsPanel />
+        </div>
+      )}
 
       {/* Input */}
       <div className="px-4 pb-4">
@@ -1738,6 +1871,292 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           </div>
         )}
       </div>
+
+      {/* Pins Sidebar Panel */}
+      {showPins && (
+        <div className="w-80 border-l border-border/50 bg-bg-secondary flex flex-col animate-in slide-in-from-right duration-300">
+          <div className="p-4 border-b border-border/50 flex items-center justify-between bg-bg-primary/30">
+            <div className="flex items-center gap-2">
+              <svg
+                className="w-4 h-4 text-accent"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
+                />
+              </svg>
+              <h3 className="text-xs font-bold uppercase tracking-widest text-text-primary">
+                Pinned Messages
+              </h3>
+            </div>
+            <button
+              onClick={() => setShowPins(false)}
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface/60 transition-colors"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18 18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+            {isLoadingPins ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-text-muted">
+                <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                <span className="text-[10px] font-bold uppercase tracking-widest">
+                  Loading pins...
+                </span>
+              </div>
+            ) : pinnedMessages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-bg-primary/20 rounded-2xl border border-dashed border-border/30">
+                <div className="w-12 h-12 rounded-full bg-bg-surface flex items-center justify-center mb-4">
+                  <svg
+                    className="w-6 h-6 text-text-muted/40"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
+                    />
+                  </svg>
+                </div>
+                <h4 className="text-sm font-bold text-text-primary mb-1">
+                  No Pins Yet
+                </h4>
+                <p className="text-[11px] text-text-muted leading-relaxed">
+                  Important messages can be pinned to keep them accessible for
+                  everyone.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {pinnedMessages.map((msgWithReply) => {
+                  const msg = msgWithReply.message;
+                  return (
+                    <div
+                      key={msg.id}
+                      className="group/pin p-3 rounded-xl bg-bg-surface/40 border border-border/30 hover:border-accent/30 transition-all cursor-pointer"
+                      onClick={() => {
+                        const idx = messages.findIndex((m) => m.id === msg.id);
+                        if (idx >= 0) {
+                          virtuosoRef.current?.scrollToIndex({
+                            index: idx,
+                            align: "center",
+                            behavior: "smooth",
+                          });
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent">
+                          {msg.userName?.[0].toUpperCase()}
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[11px] font-bold text-text-primary truncate leading-tight">
+                            {msg.userName}
+                          </span>
+                          <span className="text-[9px] text-text-muted uppercase tracking-tighter">
+                            {formatTime(msg.createdAt)}
+                          </span>
+                        </div>
+                        <button
+                          className="ml-auto p-1 rounded-md opacity-0 group-hover/pin:opacity-100 hover:bg-danger/10 text-text-muted hover:text-danger transition-all"
+                          title="Unpin"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTogglePin(msg.id, true);
+                          }}
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M6 18 18 6M6 6l12 12"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                      <p className="text-xs text-text-secondary line-clamp-3 break-words">
+                        {msg.content}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
+
+  // Sub-component for the pins panel to keep the main component cleaner
+  function PinsPanel() {
+    return (
+      <div className="flex flex-col h-full bg-bg-surface shadow-2xl relative z-10">
+        <div className="p-4 border-b border-border/50 flex items-center justify-between bg-bg-surface/80 backdrop-blur-md sticky top-0 z-20">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-accent/20 flex items-center justify-center">
+              <svg
+                className="w-4 h-4 text-accent"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-text-primary leading-none">
+                Pinned Messages
+              </h3>
+              <span className="text-[10px] text-text-muted font-medium uppercase tracking-wider">
+                {pinnedMessages.length}{" "}
+                {pinnedMessages.length === 1 ? "Pin" : "Pins"}
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowPins(false)}
+            className="p-1.5 rounded-lg hover:bg-bg-secondary text-text-muted hover:text-text-primary transition-all"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 18 18 6M6 6l12 12"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+          {isLoadingPins ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-text-muted">
+              <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+              <span className="text-[10px] font-bold uppercase tracking-widest">
+                Loading pins...
+              </span>
+            </div>
+          ) : pinnedMessages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-bg-primary/20 rounded-2xl border border-dashed border-border/30">
+              <div className="w-12 h-12 rounded-full bg-bg-surface flex items-center justify-center mb-4">
+                <svg
+                  className="w-6 h-6 text-text-muted/40"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z"
+                  />
+                </svg>
+              </div>
+              <h4 className="text-sm font-bold text-text-primary mb-1">
+                No Pins Yet
+              </h4>
+              <p className="text-[11px] text-text-muted leading-relaxed">
+                Important messages can be pinned to keep them accessible for
+                everyone.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {pinnedMessages.map((msgWithReply) => {
+                const msg = msgWithReply.message;
+                return (
+                  <div
+                    key={msg.id}
+                    className="group/pin p-3 rounded-xl bg-bg-surface/40 border border-border/30 hover:border-accent/30 transition-all cursor-pointer"
+                    onClick={() => {
+                      const idx = messages.findIndex((m) => m.id === msg.id);
+                      if (idx >= 0) {
+                        virtuosoRef.current?.scrollToIndex({
+                          index: idx,
+                          align: "center",
+                          behavior: "smooth",
+                        });
+                      }
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center text-[10px] font-bold text-accent">
+                        {msg.userName?.[0].toUpperCase()}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-[11px] font-bold text-text-primary truncate leading-tight">
+                          {msg.userName}
+                        </span>
+                        <span className="text-[9px] text-text-muted uppercase tracking-tighter">
+                          {formatTime(msg.createdAt)}
+                        </span>
+                      </div>
+                      <button
+                        className="ml-auto p-1 rounded-md opacity-0 group-hover/pin:opacity-100 hover:bg-danger/10 text-text-muted hover:text-danger transition-all"
+                        title="Unpin"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTogglePin(msg.id, true);
+                        }}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6 18 18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <p className="text-xs text-text-secondary line-clamp-3 break-words">
+                      {msg.content}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 }

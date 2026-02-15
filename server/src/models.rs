@@ -400,6 +400,14 @@ pub enum WsServerMessage {
         user_id: String,
         user_name: String,
     },
+    #[serde(rename = "message_pinned")]
+    MessagePinned {
+        channel_id: String,
+        message_id: String,
+        pinned: bool,
+        pinned_at: Option<String>,
+        pinned_by: Option<String>,
+    },
     #[serde(rename = "user_left")]
     UserLeft {
         channel_id: String,

@@ -218,8 +218,13 @@ async fn main() {
         .route("/api/channels/{channel_id}/keys", get(routes::encryption::get_channel_keys))
         .route("/api/channels/{channel_id}/encrypted", put(routes::encryption::set_channel_encrypted))
         // Messages
-        .route("/api/messages/{message_id}", put(routes::messages::edit_message))
         .route("/api/messages/{message_id}", delete(routes::messages::delete_message))
+        .route("/api/messages/{message_id}/pin", post(routes::messages::pin_message))
+        .route("/api/messages/{message_id}/pin", delete(routes::messages::unpin_message))
+        .route(
+            "/api/channels/{channel_id}/pins",
+            get(routes::messages::get_pinned_messages),
+        )
         .route("/api/messages/{message_id}/reactions", post(routes::reactions::add_reaction))
         .route("/api/messages/{message_id}/reactions/{emoji}", delete(routes::reactions::remove_reaction))
         // Federation

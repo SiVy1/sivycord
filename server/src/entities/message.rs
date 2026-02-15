@@ -15,6 +15,8 @@ pub struct Model {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub reply_to: Option<String>,
+    pub pinned_at: Option<String>,
+    pub pinned_by: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
