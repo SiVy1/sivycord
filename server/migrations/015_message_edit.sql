@@ -1,2 +1,3 @@
 ALTER TABLE messages ADD COLUMN edited_at TIMESTAMPTZ;
 ALTER TABLE messages ADD COLUMN deleted_at TIMESTAMPTZ;
+ALTER TABLE messages ADD COLUMN reply_to TEXT REFERENCES messages(id);

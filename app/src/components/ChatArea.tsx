@@ -68,6 +68,8 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
   const [dragOver, setDragOver] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const prevChannelRef = useRef<string | null>(null);
@@ -111,10 +113,13 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           const { invoke } = await import("@tauri-apps/api/core");
           const namespaceId = activeServer.config.p2p?.namespaceId;
           if (!namespaceId) return;
-          const entries = await invoke<ChatEntry[]>("list_p2p_channel_messages", {
-            docId: namespaceId,
-            channelId: activeChannelId,
-          });
+          const entries = await invoke<ChatEntry[]>(
+            "list_p2p_channel_messages",
+            {
+              docId: namespaceId,
+              channelId: activeChannelId,
+            },
+          );
 
           const mapped = entries.map((e) => {
             // Try to parse the content as JSON (P2PMessage format)
@@ -124,7 +129,9 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
               const parsed = JSON.parse(e.content);
               if (parsed.content) content = parsed.content;
               if (parsed.author) userName = parsed.author;
-            } catch { /* raw string fallback */ }
+            } catch {
+              /* raw string fallback */
+            }
             return {
               id: e.key,
               channelId: activeChannelId,
@@ -152,13 +159,16 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
     setHasMoreMessages(true);
     const controller = new AbortController();
     const authToken = activeServer.config.authToken;
-    fetch(`${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}`, {
-      signal: controller.signal,
-      headers: {
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        "X-Server-Id": activeServer.config.guildId || "default",
+    fetch(
+      `${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}`,
+      {
+        signal: controller.signal,
+        headers: {
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          "X-Server-Id": activeServer.config.guildId || "default",
+        },
       },
-    })
+    )
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
@@ -201,7 +211,13 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
     setChannelKeys([]);
     channelKeysRef.current = [];
 
-    if (!activeServer || activeServer.type === "p2p" || !activeChannelId || !isAuthenticated) return;
+    if (
+      !activeServer ||
+      activeServer.type === "p2p" ||
+      !activeChannelId ||
+      !isAuthenticated
+    )
+      return;
     if (!activeChannel?.encrypted) return;
 
     const { host, port, authToken, userId } = activeServer.config;
@@ -252,18 +268,26 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
         }
 
         // Fetch all participant keys for this channel
-        const keysRes = await fetch(`${baseUrl}/api/channels/${activeChannelId}/keys`, {
-          headers: { Authorization: `Bearer ${authToken}`, "X-Server-Id": guildId },
-        });
+        const keysRes = await fetch(
+          `${baseUrl}/api/channels/${activeChannelId}/keys`,
+          {
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "X-Server-Id": guildId,
+            },
+          },
+        );
         if (!keysRes.ok) throw new Error("Failed to fetch channel keys");
 
         const keysData: ChannelKeysResponse = await keysRes.json();
         if (cancelled) return;
 
-        const participants: ChannelParticipantKey[] = keysData.keys.map((k) => ({
-          user_id: k.user_id,
-          public_key: k.public_key,
-        }));
+        const participants: ChannelParticipantKey[] = keysData.keys.map(
+          (k) => ({
+            user_id: k.user_id,
+            public_key: k.public_key,
+          }),
+        );
 
         setChannelKeys(participants);
         channelKeysRef.current = participants;
@@ -305,7 +329,9 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
       }
     })();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [activeChannelId, activeServer?.id, activeChannel?.encrypted]);
 
   // WebSocket connection with auto-reconnect
@@ -353,10 +379,17 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           // Handle sender key distribution messages (hidden from UI)
           if (isSenderKeyDistribution(content)) {
             const myUserId = activeServer?.config.userId;
-            const senderKey = channelKeysRef.current.find((k) => k.user_id === data.user_id);
+            const senderKey = channelKeysRef.current.find(
+              (k) => k.user_id === data.user_id,
+            );
             if (myUserId && senderKey) {
-              processSenderKeyDistribution(content, myUserId, senderKey.public_key)
-                .catch((err) => console.warn("Failed to process SK distribution:", err));
+              processSenderKeyDistribution(
+                content,
+                myUserId,
+                senderKey.public_key,
+              ).catch((err) =>
+                console.warn("Failed to process SK distribution:", err),
+              );
             }
             return; // don't show distribution messages in chat
           }
@@ -395,7 +428,9 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
           if (isMsgChannelEncrypted(content)) {
             // Legacy per-message wrapped key format
             const myUserId = activeServer?.config.userId;
-            const senderKey = channelKeysRef.current.find((k) => k.user_id === data.user_id);
+            const senderKey = channelKeysRef.current.find(
+              (k) => k.user_id === data.user_id,
+            );
             if (myUserId && senderKey) {
               decryptChannelMessage(content, myUserId, senderKey.public_key)
                 .then((decrypted) => {
@@ -438,6 +473,13 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
             createdAt: data.created_at || "",
             isBot: data.is_bot,
           });
+        } else if (data.type === "message_edited") {
+          useStore.getState().updateMessage(data.id, {
+            content: data.content,
+            editedAt: data.edited_at,
+          });
+        } else if (data.type === "message_deleted") {
+          useStore.getState().removeMessage(data.id);
         } else if (data.type === "voice_state_sync") {
           useStore.getState().setVoiceMembers(data.voice_states);
         } else if (data.type === "voice_peer_joined") {
@@ -517,7 +559,8 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
 
   // Load older messages (infinite scroll upward)
   const loadOlderMessages = useCallback(async () => {
-    if (!activeServer || !activeChannelId || isLoadingMore || !hasMoreMessages) return;
+    if (!activeServer || !activeChannelId || isLoadingMore || !hasMoreMessages)
+      return;
     if (activeServer.type === "p2p") return; // P2P loads all at once
 
     const { host, port } = activeServer.config;
@@ -534,7 +577,9 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
         `${baseUrl}/api/channels/${activeChannelId}/messages?limit=${MESSAGES_PER_PAGE}&before=${encodeURIComponent(oldest.createdAt)}`,
         {
           headers: {
-            ...(activeServer.config.authToken ? { Authorization: `Bearer ${activeServer.config.authToken}` } : {}),
+            ...(activeServer.config.authToken
+              ? { Authorization: `Bearer ${activeServer.config.authToken}` }
+              : {}),
             "X-Server-Id": guildId,
           },
         },
@@ -567,7 +612,16 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [activeServer, activeChannelId, messages, isLoadingMore, hasMoreMessages, prependMessages, setHasMoreMessages, setIsLoadingMore]);
+  }, [
+    activeServer,
+    activeChannelId,
+    messages,
+    isLoadingMore,
+    hasMoreMessages,
+    prependMessages,
+    setHasMoreMessages,
+    setIsLoadingMore,
+  ]);
 
   // File upload
   const uploadFile = useCallback(
@@ -747,10 +801,22 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                 ? "bg-green-500/10 border-green-500/30 text-green-400"
                 : "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 animate-pulse"
             }`}
-            title={e2eReady ? "End-to-End Encrypted" : "Setting up encryption..."}
+            title={
+              e2eReady ? "End-to-End Encrypted" : "Setting up encryption..."
+            }
           >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+            <svg
+              className="w-3 h-3"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+              />
             </svg>
             {e2eReady ? "E2E" : "..."}
           </div>
@@ -804,7 +870,6 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                       : "Offline"}
                 </span>
               </div>
-
             </>
           )}
           {/* Members toggle button */}
@@ -818,8 +883,18 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
               }`}
               title={showMembers ? "Hide Members" : "Show Members"}
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
+                />
               </svg>
             </button>
           )}
@@ -902,9 +977,24 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                   <div className="flex justify-center py-3">
                     {isLoadingMore ? (
                       <div className="flex items-center gap-2 text-text-muted text-xs">
-                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        <svg
+                          className="w-4 h-4 animate-spin"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
                         </svg>
                         Loading older messages...
                       </div>
@@ -923,11 +1013,74 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                 ) : null,
             }}
             itemContent={(index, msg) => {
-              const showHeader = index === 0 || messages[index - 1].userId !== msg.userId;
+              const showHeader =
+                index === 0 || messages[index - 1].userId !== msg.userId;
               const avatarUrl = msg.avatarUrl;
+              const isOwnMessage = msg.userId === activeServer?.config.userId;
+              const isEditing = editingMessageId === msg.id;
 
               return (
-                <div className={`px-4 ${showHeader ? "mt-3" : ""}`}>
+                <div
+                  className={`group relative px-4 ${showHeader ? "mt-3" : ""}`}
+                >
+                  {/* Hover action buttons */}
+                  {!isEditing && isOwnMessage && (
+                    <div className="absolute right-4 -top-2 hidden group-hover:flex items-center gap-0.5 bg-bg-secondary border border-border/50 rounded-lg shadow-lg px-1 py-0.5 z-10">
+                      <button
+                        className="p-1.5 rounded-md hover:bg-bg-surface/80 text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+                        title="Edit message"
+                        onClick={() => {
+                          setEditingMessageId(msg.id);
+                          setEditContent(msg.content);
+                        }}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        className="p-1.5 rounded-md hover:bg-danger/20 text-text-muted hover:text-danger transition-colors cursor-pointer"
+                        title="Delete message"
+                        onClick={() => {
+                          // Optimistic delete
+                          useStore.getState().removeMessage(msg.id);
+                          const ws = wsRef.current;
+                          if (ws && ws.readyState === WebSocket.OPEN) {
+                            const deleteMsg: WsClientMessage = {
+                              type: "delete_message",
+                              message_id: msg.id,
+                              channel_id: msg.channelId,
+                            };
+                            ws.send(JSON.stringify(deleteMsg));
+                          }
+                        }}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                   {showHeader && (
                     <div className="flex items-center gap-3 mb-1">
                       {avatarUrl && activeServer ? (
@@ -964,12 +1117,101 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
                         <span className="text-[10px] font-medium text-text-muted uppercase tracking-wider">
                           {formatTime(msg.createdAt)}
                         </span>
+                        {msg.editedAt && (
+                          <span
+                            className="text-[10px] text-text-muted italic"
+                            title={`Edited ${formatTime(msg.editedAt)}`}
+                          >
+                            (edited)
+                          </span>
+                        )}
                       </div>
                     </div>
                   )}
-                  <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
-                    <MessageContent content={msg.content} server={activeServer!} />
-                  </div>
+                  {isEditing ? (
+                    <div className="pl-13 py-1">
+                      <input
+                        className="w-full bg-bg-secondary border border-accent/50 rounded-lg px-3 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            const trimmed = editContent.trim();
+                            if (trimmed && trimmed !== msg.content) {
+                              // Optimistic edit
+                              useStore.getState().updateMessage(msg.id, {
+                                content: trimmed,
+                                editedAt: new Date().toISOString(),
+                              });
+                              const ws = wsRef.current;
+                              if (ws && ws.readyState === WebSocket.OPEN) {
+                                const editMsg: WsClientMessage = {
+                                  type: "edit_message",
+                                  message_id: msg.id,
+                                  content: trimmed,
+                                };
+                                ws.send(JSON.stringify(editMsg));
+                              }
+                            }
+                            setEditingMessageId(null);
+                            setEditContent("");
+                          } else if (e.key === "Escape") {
+                            setEditingMessageId(null);
+                            setEditContent("");
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <div className="text-[10px] text-text-muted mt-1">
+                        Escape to{" "}
+                        <span
+                          className="text-text-secondary cursor-pointer hover:underline"
+                          onClick={() => {
+                            setEditingMessageId(null);
+                            setEditContent("");
+                          }}
+                        >
+                          cancel
+                        </span>{" "}
+                        · Enter to{" "}
+                        <span
+                          className="text-text-secondary cursor-pointer hover:underline"
+                          onClick={() => {
+                            const trimmed = editContent.trim();
+                            if (trimmed && trimmed !== msg.content) {
+                              // Optimistic edit
+                              useStore.getState().updateMessage(msg.id, {
+                                content: trimmed,
+                                editedAt: new Date().toISOString(),
+                              });
+                              const ws = wsRef.current;
+                              if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(
+                                  JSON.stringify({
+                                    type: "edit_message",
+                                    message_id: msg.id,
+                                    content: trimmed,
+                                  }),
+                                );
+                              }
+                            }
+                            setEditingMessageId(null);
+                            setEditContent("");
+                          }}
+                        >
+                          save
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="pl-13 text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
+                      <MessageContent
+                        content={msg.content}
+                        server={activeServer!}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             }}

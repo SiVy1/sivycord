@@ -18,6 +18,7 @@ export interface Message {
   avatarUrl?: string | null;
   content: string;
   createdAt: string;
+  editedAt?: string | null;
   attachments?: Attachment[];
   isBot?: boolean;
 }

@@ -52,6 +52,16 @@ export type WsClientMessage =
       user_id: string;
       is_muted: boolean;
       is_deafened: boolean;
+    }
+  | {
+      type: "edit_message";
+      message_id: string;
+      content: string;
+    }
+  | {
+      type: "delete_message";
+      message_id: string;
+      channel_id: string;
     };
 
 export type WsServerMessage =
@@ -66,6 +76,17 @@ export type WsServerMessage =
       content: string;
       created_at: string;
       is_bot?: boolean;
+    }
+  | {
+      type: "message_edited";
+      id: string;
+      content: string;
+      edited_at: string;
+    }
+  | {
+      type: "message_deleted";
+      id: string;
+      channel_id: string;
     }
   | {
       type: "user_joined";

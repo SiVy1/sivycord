@@ -45,6 +45,8 @@ interface AppState {
   prependMessages: (messages: Message[]) => void;
   setHasMoreMessages: (v: boolean) => void;
   setIsLoadingMore: (v: boolean) => void;
+  updateMessage: (id: string, updates: Partial<Message>) => void;
+  removeMessage: (id: string) => void;
   // Voice
   voiceChannelId: string | null;
   voiceMembers: VoicePeer[];
@@ -130,7 +132,13 @@ export const useStore = create<AppState>()(
       channels: [],
       activeChannelId: null,
       setChannels: (channels) => set({ channels }),
-      setActiveChannel: (id) => set({ activeChannelId: id, messages: [], hasMoreMessages: true, isLoadingMore: false }),
+      setActiveChannel: (id) =>
+        set({
+          activeChannelId: id,
+          messages: [],
+          hasMoreMessages: true,
+          isLoadingMore: false,
+        }),
 
       // Messages
       messages: [],
@@ -151,6 +159,16 @@ export const useStore = create<AppState>()(
         }),
       setHasMoreMessages: (v) => set({ hasMoreMessages: v }),
       setIsLoadingMore: (v) => set({ isLoadingMore: v }),
+      updateMessage: (id, updates) =>
+        set((s) => ({
+          messages: s.messages.map((m) =>
+            m.id === id ? { ...m, ...updates } : m,
+          ),
+        })),
+      removeMessage: (id) =>
+        set((s) => ({
+          messages: s.messages.filter((m) => m.id !== id),
+        })),
 
       // Voice
       voiceChannelId: null,
@@ -161,7 +179,13 @@ export const useStore = create<AppState>()(
       setMuted: (v) => set({ isMuted: v }),
       setDeafened: (v) => set({ isDeafened: v }),
       setVoiceChannel: (id) =>
-        set({ voiceChannelId: id, voiceMembers: [], screenShares: new Map(), isMuted: false, isDeafened: false }),
+        set({
+          voiceChannelId: id,
+          voiceMembers: [],
+          screenShares: new Map(),
+          isMuted: false,
+          isDeafened: false,
+        }),
       setVoiceMembers: (members) => set({ voiceMembers: members }),
       addVoiceMember: (peer) =>
         set((s) => ({
@@ -231,10 +255,18 @@ export const useStore = create<AppState>()(
         const result = await Promise.race([
           invoke<{ namespace_id: string; ticket: string }>("create_doc"),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("create_doc timed out after 30s")), 30000)
+            setTimeout(
+              () => reject(new Error("create_doc timed out after 30s")),
+              30000,
+            ),
           ),
         ]);
-        console.log("[P2P] createP2PServer: doc created, namespace_id=", result.namespace_id, "ticket_len=", result.ticket.length);
+        console.log(
+          "[P2P] createP2PServer: doc created, namespace_id=",
+          result.namespace_id,
+          "ticket_len=",
+          result.ticket.length,
+        );
         const namespaceId = result.namespace_id;
         const ticket = result.ticket;
         const server: ServerEntry = {
@@ -253,7 +285,11 @@ export const useStore = create<AppState>()(
         // Publish DID identity to the new server
         const dn = useStore.getState().displayName || name;
         try {
-          await invoke("set_identity", { docId: namespaceId, displayName: dn, bio: null });
+          await invoke("set_identity", {
+            docId: namespaceId,
+            displayName: dn,
+            bio: null,
+          });
         } catch (e) {
           console.warn("set_identity failed (non-critical)", e);
         }
@@ -263,13 +299,19 @@ export const useStore = create<AppState>()(
         }));
       },
       joinP2PServer: async (name: string, ticket: string) => {
-        console.log("[P2P] joinP2PServer: starting, ticket_len=", ticket.length);
+        console.log(
+          "[P2P] joinP2PServer: starting, ticket_len=",
+          ticket.length,
+        );
         const { invoke } = await import("@tauri-apps/api/core");
         console.log("[P2P] joinP2PServer: calling join_doc...");
         const namespaceId = await Promise.race([
           invoke<string>("join_doc", { ticketStr: ticket }),
           new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("join_doc timed out after 30s")), 30000)
+            setTimeout(
+              () => reject(new Error("join_doc timed out after 30s")),
+              30000,
+            ),
           ),
         ]);
         console.log("[P2P] joinP2PServer: joined, namespace_id=", namespaceId);
@@ -285,7 +327,11 @@ export const useStore = create<AppState>()(
         // Publish DID identity to the joined server (non-critical)
         const dn = useStore.getState().displayName || name;
         try {
-          await invoke("set_identity", { docId: namespaceId, displayName: dn, bio: null });
+          await invoke("set_identity", {
+            docId: namespaceId,
+            displayName: dn,
+            bio: null,
+          });
         } catch (e) {
           console.warn("set_identity failed (non-critical)", e);
         }
@@ -298,7 +344,8 @@ export const useStore = create<AppState>()(
         try {
           const { invoke } = await import("@tauri-apps/api/core");
           // Use MoQ voice with channel-specific topic
-          const channelId = useStore.getState().voiceChannelId || "voice-lounge";
+          const channelId =
+            useStore.getState().voiceChannelId || "voice-lounge";
           await invoke("moq_join_voice", { docId, channelId });
           await invoke("moq_start_voice", { docId, channelId });
           set({ p2pVoiceActive: true });
@@ -312,7 +359,9 @@ export const useStore = create<AppState>()(
           await invoke("stop_voice");
           // Also remove voice presence from the doc
           const state = useStore.getState();
-          const server = state.servers.find((s) => s.id === state.activeServerId);
+          const server = state.servers.find(
+            (s) => s.id === state.activeServerId,
+          );
           if (server?.config.p2p?.namespaceId && state.voiceChannelId) {
             await invoke("moq_leave_voice", {
               docId: server.config.p2p.namespaceId,
