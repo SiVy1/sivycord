@@ -331,7 +331,36 @@ async fn handle_socket(
                             }
                         });
                     }
+                    Ok(WsClientMessage::TimeoutUser { user_id, duration_seconds, reason }) => {
+                        if !is_authenticated {
+                            let _ = client_tx.send(WsServerMessage::Error {
+                                message: "Authentication required to timeout users".to_string(),
+                            }).await;
+                            continue;
+                        }
+                        if duration_seconds <= 0 || duration_seconds > 60 * 60 * 24 * 7 {
+                            continue; // Limit timeout duration to 7 days
+                        }
 
+                        // Check permission
+                        if !user_has_permission(&state, &user_id, Permissions::KICK_MEMBERS).await.unwrap_or(false) {
+                            let _ = client_tx.send(WsServerMessage::Error {
+                                message: "Insufficient permissions to timeout users".to_string(),
+                            }).await;
+                            continue;
+                        }
+
+                        // Apply timeout
+                        state.timeout_user(&user_id, duration_seconds).await;
+
+                        // Optionally, broadcast timeout event to channels the user is in
+                        let _ = state.global_tx.send(WsServerMessage::UserTimedOut {
+                            user_id: user_id.clone(),
+                            duration_seconds,
+                            reason,
+                        });
+
+                    }
                     Ok(WsClientMessage::DeleteMessage { message_id, channel_id }) => {
                         if !is_authenticated {
                             let _ = client_tx.send(WsServerMessage::Error {

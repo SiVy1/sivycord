@@ -141,6 +141,19 @@ impl AppState {
         self.is_user_timed_out.lock().await.contains(user_id)
     }
 
+    /// Timeout a user for a given duration (in seconds)
+    pub async fn timeout_user(&self, user_id: &str, duration_seconds: i64) {
+        let mut timed_out_users = self.is_user_timed_out.lock().await;
+        timed_out_users.insert(user_id.to_string());
+        // Schedule removal of timeout after duration
+        let is_user_timed_out = Arc::clone(&self.is_user_timed_out);
+        let user_id = user_id.to_string();
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_secs(duration_seconds as u64)).await;
+            is_user_timed_out.lock().await.remove(&user_id);
+        });
+    }
+
     /// Get the set of all online user IDs
     pub async fn get_online_user_ids(&self) -> HashSet<String> {
         self.online_users.lock().await.clone()

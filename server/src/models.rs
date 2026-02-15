@@ -286,6 +286,12 @@ pub enum WsClientMessage {
         #[serde(default)]
         reply_to: Option<String>,
     },
+    #[serde(rename = "timeout_user")]
+    TimeoutUser {
+        user_id: String,
+        duration_seconds: i64,
+        reason: Option<String>,
+    },
     #[serde(rename = "typing_start")]
     TypingStart {
         channel_id: String,
@@ -368,6 +374,12 @@ pub enum WsServerMessage {
         reply_to: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         replied_message: Option<RepliedMessage>,
+    },
+    #[serde(rename="user_timedout")]
+    UserTimedOut {
+        user_id: String,
+        duration_seconds: i64,
+        reason: Option<String>,
     },
     #[serde(rename = "message_edited")]
     MessageEdited {

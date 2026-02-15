@@ -219,9 +219,7 @@ pub async fn start_voice(
             buffer_size: cpal::BufferSize::Default,
         };
 
-        // CRIT-2: Lock-free consumer — no Mutex in audio output callback
         let mut ring_reader = ring_consumer;
-        // Resample from 48kHz mono ring buffer to device native format
         let step = OPUS_SAMPLE_RATE as f64 / dev_rate as f64;
         let mut last_sample = 0.0f32;
         let mut frac = 0.0f64;
