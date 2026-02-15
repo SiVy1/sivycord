@@ -183,8 +183,8 @@ pub async fn execute_webhook(
         avatar_url: Set(avatar.clone()),
         content: Set(content.clone()),
         created_at: Set(now.clone()),
-        author_id: Set(wh.id.clone()),
         edited_at: Set(None),
+        deleted_at: Set(None),
     };
 
     message::Entity::insert(new_msg)

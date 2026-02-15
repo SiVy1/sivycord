@@ -1,1 +1,2 @@
 ALTER TABLE message ADD COLUMN edited_at TIMESTAMPTZ,
+    ADD COLUMN deleted_at TEXT NOT NULL; 

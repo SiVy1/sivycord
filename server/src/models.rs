@@ -146,12 +146,15 @@ pub struct AssignRoleRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageEdit {
+    pub message_id: String,
     pub content: String,
+    pub edited_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageDelete {
-    pub reason: Option<String>,
+    pub message_id: String,
+    pub deleted_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

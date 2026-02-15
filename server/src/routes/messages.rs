@@ -5,7 +5,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use sea_orm::{EntityTrait, QueryFilter, ColumnTrait, QueryOrder, QuerySelect};
+use sea_orm::{ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use crate::{entities::message, models::MessageEdit, routes::roles::user_has_permission};
 use crate::models::{Message, MessagesQuery};
@@ -54,7 +54,7 @@ pub async fn edit_message(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
         .ok_or((StatusCode::NOT_FOUND, "Message not found".to_string()))?;
 
-    if message.author_id != claims.user_id {
+    if message.user_id != claims.user_id {
         return Err((StatusCode::FORBIDDEN, "Not your message".to_string()));
     }
 
@@ -91,14 +91,21 @@ pub async fn delete_message(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))?;
 
-    if message.author_id != claims.user_id || !has_permission {
+    if message.user_id != claims.user_id || !has_permission {
         return Err((StatusCode::FORBIDDEN, "Not your message".to_string()));
     }
 
-    message::Entity::delete_by_id(message_id)
-        .exec(&state.db)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let mut active_message: message::ActiveModel = message.into();
+    active_message.deleted_at = Set(Some(chrono::Utc::now()));
+
+    active_message.update(&state.db).await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to delete message: {e}"),
+        )
+    })?;
 
     Ok(StatusCode::NO_CONTENT)
 }

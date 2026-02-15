@@ -275,8 +275,8 @@ pub async fn bot_send_message(
         avatar_url: Set(bot.avatar_url.clone()),
         content: Set(content.clone()),
         created_at: Set(now.clone()),
-        author_id: Set(bot.id.clone()),
         edited_at: Set(None),
+        deleted_at: Set(None),
     };
 
     message::Entity::insert(new_msg)
