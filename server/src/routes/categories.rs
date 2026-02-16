@@ -105,7 +105,7 @@ pub async fn create_category(
     Ok((StatusCode::CREATED, Json(category)))
 }
 
-async fn delete_category(
+pub async fn delete_category(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(category_id): Path<String>,
@@ -143,7 +143,7 @@ async fn delete_category(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn update_category(
+pub async fn update_category(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(category_id): Path<String>,
