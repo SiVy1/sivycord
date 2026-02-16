@@ -7,7 +7,7 @@ use sea_orm::*;
 use sea_orm::prelude::Expr;
 use uuid::Uuid;
 
-use crate::entities::{ban, bot, channel, invite_code, role, server, server_member, user, user_role};
+use crate::entities::{ban, bot, category, channel, invite_code, role, server, server_member, user, user_role};
 use crate::models::{CreateServerRequest, Permissions, Server, ServerMember};
 use crate::routes::auth::extract_claims;
 use crate::routes::audit_logs::create_audit_log;
@@ -80,11 +80,29 @@ pub async fn create_server(
         updated_at: Set(None),
     };
 
+    let category_id = Uuid::new_v4().to_string();
+
+    let default_category = category::ActiveModel {
+        id: Set(category_id.clone()),
+        name: Set("Uncategorized".to_string()),
+        position: Set(0),
+        server_id: Set(server_id.clone()),
+    };
+
+    // Insert server and default category in a transaction
+
     server::Entity::insert(new_server)
         .exec(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("Failed to create server: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    category::Entity::insert(default_category)
+        .exec(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create default category: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
@@ -97,7 +115,10 @@ pub async fn create_server(
     server_member::Entity::insert(member)
         .exec(&state.db)
         .await
-        .ok();
+        .map_err(|e| {
+            tracing::error!("Failed to add creator as member: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Create an Admin role for this server
     let admin_role_id = format!("{}-admin", server_id);
@@ -113,7 +134,10 @@ pub async fn create_server(
     role::Entity::insert(admin_role)
         .exec(&state.db)
         .await
-        .ok();
+        .map_err(|e| {
+            tracing::error!("Failed to create admin role: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Assign admin role to creator
     let ur = user_role::ActiveModel {
@@ -130,7 +154,10 @@ pub async fn create_server(
         .do_nothing()
         .exec(&state.db)
         .await
-        .ok();
+        .map_err(|e| {
+            tracing::error!("Failed to assign admin role: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Create default channels
     let general_id = Uuid::new_v4().to_string();
@@ -141,12 +168,15 @@ pub async fn create_server(
         position: Set(0),
         channel_type: Set("text".to_string()),
         server_id: Set(server_id.clone()),
-        ..Default::default()
-    };
+        category_id: Set(Some(category_id.clone())),
+        ..Default::default()};
     channel::Entity::insert(general_ch)
         .exec(&state.db)
         .await
-        .ok();
+        .map_err(|e| {
+            tracing::error!("Failed to create general channel: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let voice_id = Uuid::new_v4().to_string();
     let voice_ch = channel::ActiveModel {
@@ -156,12 +186,16 @@ pub async fn create_server(
         position: Set(1),
         channel_type: Set("voice".to_string()),
         server_id: Set(server_id.clone()),
+        category_id: Set(Some(category_id.clone())),
         ..Default::default()
     };
     channel::Entity::insert(voice_ch)
         .exec(&state.db)
         .await
-        .ok();
+        .map_err(|e| {
+            tracing::error!("Failed to create voice channel: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Create a server-specific invite code
     let invite_code_val = crate::token::generate_invite_code();

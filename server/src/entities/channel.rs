@@ -19,7 +19,7 @@ pub struct Model {
     #[serde(default = "default_server_id")]
     pub server_id: String,
     #[serde(default)]
-    pub category_id: i64,
+    pub category_id: Option<String>,
 }
 
 fn default_channel_type() -> String {

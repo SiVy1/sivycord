@@ -183,6 +183,17 @@ pub struct UpdateCategoryRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ReorderCategoriesRequest {
+    pub positions: Vec<CategoryPosition>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CategoryPosition {
+    pub id: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Category {
     pub id: String,
     pub server_id: String,
@@ -217,6 +228,19 @@ pub struct CreateChannelRequest {
     pub description: String,
     #[serde(default = "default_channel_type")]
     pub channel_type: String,
+    pub category_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReorderChannelsRequest {
+    pub channels: Vec<ChannelReorderItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChannelReorderItem {
+    pub id: String,
+    pub position: i64,
+    pub category_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

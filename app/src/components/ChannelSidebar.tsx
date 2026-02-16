@@ -6,9 +6,15 @@ import { useIsTalking } from "../hooks/talkingStore";
 import { UserSettingsModal } from "./UserSettingsModal";
 import { AdminPanel } from "./AdminPanel";
 import { CreateChannelModal } from "./CreateChannelModal";
+import { CreateCategoryModal } from "./CreateCategoryModal";
 import { P2PInviteModal } from "./P2PInviteModal";
 import { AddServerModal } from "./AddServerModal";
-import { type Channel, type P2PChannel, getApiUrl } from "../types";
+import {
+  type Channel,
+  type Category,
+  type P2PChannel,
+  getApiUrl,
+} from "../types";
 import {
   MicOff,
   HeadphoneOff,
@@ -22,6 +28,8 @@ import {
   X,
   LogOut,
   Check,
+  ChevronRight,
+  FolderPlus,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
@@ -79,6 +87,88 @@ const VoiceMemberRow = memo(function VoiceMemberRow({
   );
 });
 
+const ChannelItem = memo(function ChannelItem({
+  channel,
+  isActive,
+  onClick,
+  isConnected,
+  onVoiceClick,
+  voiceMembers,
+  screenShares,
+}: {
+  channel: Channel;
+  isActive: boolean;
+  onClick: () => void;
+  isConnected: boolean;
+  onVoiceClick: () => void;
+  voiceMembers: VoiceMember[];
+  screenShares: Map<string, MediaStream>;
+}) {
+  if (channel.channel_type === "voice") {
+    return (
+      <div>
+        <button
+          onClick={onVoiceClick}
+          className={`
+          w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
+          transition-all duration-150 group relative
+          ${
+            isConnected
+              ? "bg-bg-tertiary text-text-primary font-medium"
+              : "text-text-muted hover:bg-bg-tertiary/50 hover:text-text-secondary"
+          }
+        `}
+        >
+          <Volume2
+            className={`w-4 h-4 shrink-0 ${
+              isConnected
+                ? "text-success"
+                : "text-text-muted/50 group-hover:text-text-muted"
+            }`}
+          />
+          <span className="truncate">{channel.name}</span>
+        </button>
+
+        {voiceMembers.length > 0 && (
+          <div className="ml-6 mt-0.5 mb-1 space-y-0.5 border-l border-border/30 pl-2">
+            {voiceMembers.map((m) => (
+              <VoiceMemberRow
+                key={m.user_id}
+                member={m}
+                hasScreenShare={screenShares.has(m.user_id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={onClick}
+      className={`
+      w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
+      transition-all duration-150 group
+      ${
+        isActive
+          ? "bg-bg-tertiary text-text-primary font-medium"
+          : "text-text-muted hover:bg-bg-tertiary/50 hover:text-text-secondary"
+      }
+    `}
+    >
+      <Hash
+        className={`w-4 h-4 shrink-0 ${
+          isActive
+            ? "text-text-secondary"
+            : "text-text-muted/50 group-hover:text-text-muted"
+        }`}
+      />
+      <span className="truncate">{channel.name}</span>
+    </button>
+  );
+});
+
 export function ChannelSidebar() {
   const activeServerId = useStore((s) => s.activeServerId);
   const servers = useStore((s) => s.servers);
@@ -92,11 +182,16 @@ export function ChannelSidebar() {
   const currentUser = useStore((s) => s.currentUser);
   const screenShares = useStore((s) => s.screenShares);
   const displayName = useStore((s) => s.displayName);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
+    new Set(),
+  );
   const { joinVoice, leaveVoice } = useVoice();
 
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showCreateCategory, setShowCreateCategory] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showServerDropdown, setShowServerDropdown] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
@@ -104,11 +199,6 @@ export function ChannelSidebar() {
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
-
-  const textChannels = channels.filter(
-    (c) => c.channel_type === "text" || !c.channel_type,
-  );
-  const voiceChannels = channels.filter((c) => c.channel_type === "voice");
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -194,11 +284,138 @@ export function ChannelSidebar() {
         }
       })
       .catch((err) => console.error("Failed to fetch channels:", err));
+
+    // Fetch categories
+    fetch(`${baseUrl}/api/servers/${guildId}/categories`, {
+      headers: {
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+    })
+      .then((r) => r.json())
+      .then((data: Category[]) => setCategories(data))
+      .catch((err) => console.error("Failed to fetch categories:", err));
   };
 
   useEffect(() => {
     fetchChannels();
   }, [activeServer?.id]);
+
+  const toggleCategory = (id: string) => {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDragStart = (
+    e: React.DragEvent,
+    type: "channel" | "category",
+    id: string,
+  ) => {
+    e.dataTransfer.setData("dragType", type);
+    e.dataTransfer.setData("id", id);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDropChannel = async (
+    e: React.DragEvent,
+    targetCategoryId: string | null,
+  ) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData("dragType");
+    const draggedId = e.dataTransfer.getData("id");
+
+    if (type !== "channel") return;
+
+    // Local update for immediate feedback
+    const draggedChannel = channels.find((c) => c.id === draggedId);
+    if (!draggedChannel) return;
+
+    // Simple reorder: move to the end of the category for now
+    // In a full implementation, we'd check the exact drop position
+    const updatedChannels = channels.map((c) =>
+      c.id === draggedId ? { ...c, category_id: targetCategoryId } : c,
+    );
+    setChannels(updatedChannels);
+
+    // Persist to backend
+    try {
+      const guildId = activeServer?.config.guildId || "default";
+      await fetch(
+        `${getApiUrl(activeServer?.config.host, activeServer?.config.port)}/api/channels/reorder`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Server-Id": guildId,
+            ...(activeServer?.config.authToken
+              ? { Authorization: `Bearer ${activeServer.config.authToken}` }
+              : {}),
+          },
+          body: JSON.stringify({
+            channels: updatedChannels.map((c, i) => ({
+              id: c.id,
+              position: i,
+              category_id: c.category_id,
+            })),
+          }),
+        },
+      );
+    } catch (err) {
+      console.error("Failed to persist channel reorder:", err);
+      fetchChannels(); // Rollback on error
+    }
+  };
+
+  const handleDropCategory = async (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const type = e.dataTransfer.getData("dragType");
+    const draggedId = e.dataTransfer.getData("id");
+
+    if (type !== "category" || draggedId === targetId) return;
+
+    const dragIdx = categories.findIndex((c) => c.id === draggedId);
+    const hoverIdx = categories.findIndex((c) => c.id === targetId);
+
+    const newCategories = [...categories];
+    const [dragged] = newCategories.splice(dragIdx, 1);
+    newCategories.splice(hoverIdx, 0, dragged);
+
+    setCategories(newCategories);
+
+    // Persist to backend
+    try {
+      const guildId = activeServer?.config.guildId || "default";
+      await fetch(
+        `${getApiUrl(activeServer?.config.host, activeServer?.config.port)}/api/servers/${guildId}/categories/reorder`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(activeServer?.config.authToken
+              ? { Authorization: `Bearer ${activeServer.config.authToken}` }
+              : {}),
+          },
+          body: JSON.stringify({
+            positions: newCategories.map((c, i) => ({
+              id: c.id,
+              position: i,
+            })),
+          }),
+        },
+      );
+    } catch (err) {
+      console.error("Failed to persist category reorder:", err);
+      // Optional: rollback categories if needed
+    }
+  };
 
   return (
     <div className="w-64 min-w-64 bg-bg-secondary border-r border-border/50 flex flex-col relative z-20">
@@ -212,6 +429,13 @@ export function ChannelSidebar() {
             onClose={() => setShowInvite(false)}
           />
         )}
+      {showCreateCategory && activeServer && (
+        <CreateCategoryModal
+          server={activeServer}
+          onClose={() => setShowCreateCategory(false)}
+          onCreated={fetchChannels}
+        />
+      )}
       {/* Server Header Dropdown */}
       <div ref={dropdownRef} className="relative">
         <div
@@ -286,16 +510,28 @@ export function ChannelSidebar() {
                       </button>
                     )}
                   {activeServer.type !== "p2p" && (
-                    <button
-                      onClick={() => {
-                        setShowCreate(true);
-                        setShowServerDropdown(false);
-                      }}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors text-left"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Create Channel
-                    </button>
+                    <>
+                      <button
+                        onClick={() => {
+                          setShowCreate(true);
+                          setShowServerDropdown(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors text-left cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Create Channel
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowCreateCategory(true);
+                          setShowServerDropdown(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors text-left cursor-pointer"
+                      >
+                        <FolderPlus className="w-4 h-4" />
+                        Create Category
+                      </button>
+                    </>
                   )}
 
                   <div className="h-px bg-border/50 my-1 mx-2" />
@@ -330,94 +566,124 @@ export function ChannelSidebar() {
         </AnimatePresence>
       </div>
       {/* Channel list */}
-      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4 custom-scrollbar">
-        {/* Text channels */}
-        <div>
-          <div className="text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-2 mb-1 flex items-center justify-between group-hover:text-text-secondary transition-colors">
-            <span>Text Channels</span>
-          </div>
-          <div className="space-y-0.5">
-            {textChannels.map((channel: Channel) => (
-              <button
-                key={channel.id}
-                onClick={() => setActiveChannel(channel.id)}
-                className={`
-                  w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
-                  transition-all duration-150 group
-                  ${
-                    activeChannelId === channel.id
-                      ? "bg-bg-tertiary text-text-primary font-medium"
-                      : "text-text-muted hover:bg-bg-tertiary/50 hover:text-text-secondary"
-                  }
-                `}
-              >
-                <Hash
-                  className={`w-4 h-4 shrink-0 ${
-                    activeChannelId === channel.id
-                      ? "text-text-secondary"
-                      : "text-text-muted/50 group-hover:text-text-muted"
-                  }`}
-                />
-                <span className="truncate">{channel.name}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Voice channels */}
-        {voiceChannels.length > 0 && (
-          <>
-            <div className="text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-2 mb-1 mt-4">
-              Voice Channels
+      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-6 custom-scrollbar">
+        {/* Uncategorized channels at the top */}
+        {channels.some((c) => !c.category_id) && (
+          <div
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDropChannel(e, null)}
+          >
+            <div className="text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-2 mb-1">
+              Uncategorized
             </div>
             <div className="space-y-0.5">
-              {voiceChannels.map((channel: Channel) => {
-                const isConnected = voiceChannelId === channel.id;
-                const voiceMembersInThisChannel = voiceMembers.filter(
-                  (m) => m.channel_id === channel.id,
-                );
-                return (
-                  <div key={channel.id}>
-                    <button
-                      onClick={() =>
-                        isConnected ? leaveVoice() : joinVoice(channel.id)
+              {channels
+                .filter((c) => !c.category_id)
+                .map((channel) => (
+                  <div
+                    key={channel.id}
+                    draggable
+                    onDragStart={(e) =>
+                      handleDragStart(e, "channel", channel.id)
+                    }
+                  >
+                    <ChannelItem
+                      channel={channel}
+                      isActive={activeChannelId === channel.id}
+                      onClick={() => setActiveChannel(channel.id)}
+                      isConnected={voiceChannelId === channel.id}
+                      onVoiceClick={() =>
+                        voiceChannelId === channel.id
+                          ? leaveVoice()
+                          : joinVoice(channel.id)
                       }
-                      className={`
-                      w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
-                      transition-all duration-150 group relative
-                      ${
-                        isConnected
-                          ? "bg-bg-tertiary text-text-primary font-medium"
-                          : "text-text-muted hover:bg-bg-tertiary/50 hover:text-text-secondary"
-                      }
-                    `}
-                    >
-                      <Volume2
-                        className={`w-4 h-4 shrink-0 ${
-                          isConnected
-                            ? "text-success"
-                            : "text-text-muted/50 group-hover:text-text-muted"
-                        }`}
-                      />
-                      <span className="truncate">{channel.name}</span>
-                    </button>
-
-                    {voiceMembersInThisChannel.length > 0 && (
-                      <div className="ml-6 mt-0.5 mb-1 space-y-0.5 border-l border-border/30 pl-2">
-                        {voiceMembersInThisChannel.map((m) => (
-                          <VoiceMemberRow
-                            key={m.user_id}
-                            member={m}
-                            hasScreenShare={screenShares.has(m.user_id)}
-                          />
-                        ))}
-                      </div>
-                    )}
+                      voiceMembers={voiceMembers.filter(
+                        (m) => m.channel_id === channel.id,
+                      )}
+                      screenShares={screenShares}
+                    />
                   </div>
-                );
-              })}
+                ))}
             </div>
-          </>
+          </div>
+        )}
+
+        {/* Categories */}
+        {categories.map((cat) => {
+          const catChannels = channels.filter((c) => c.category_id === cat.id);
+          const isCollapsed = collapsedCategories.has(cat.id);
+
+          return (
+            <div
+              key={cat.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, "category", cat.id)}
+              onDragOver={handleDragOver}
+              onDrop={(e) => {
+                const type = e.dataTransfer.getData("dragType");
+                if (type === "category") handleDropCategory(e, cat.id);
+                else if (type === "channel") handleDropChannel(e, cat.id);
+              }}
+            >
+              <button
+                onClick={() => toggleCategory(cat.id)}
+                className="w-full text-left text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-1 mb-1 flex items-center gap-1 hover:text-text-secondary transition-colors cursor-pointer group/cat"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="w-3 h-3 transition-transform" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 transition-transform" />
+                )}
+                <span>{cat.name}</span>
+              </button>
+
+              {!isCollapsed && (
+                <div className="space-y-0.5">
+                  {catChannels.length > 0 ? (
+                    catChannels.map((channel) => (
+                      <div
+                        key={channel.id}
+                        draggable
+                        onDragStart={(e) =>
+                          handleDragStart(e, "channel", channel.id)
+                        }
+                      >
+                        <ChannelItem
+                          channel={channel}
+                          isActive={activeChannelId === channel.id}
+                          onClick={() => setActiveChannel(channel.id)}
+                          isConnected={voiceChannelId === channel.id}
+                          onVoiceClick={() =>
+                            voiceChannelId === channel.id
+                              ? leaveVoice()
+                              : joinVoice(channel.id)
+                          }
+                          voiceMembers={voiceMembers.filter(
+                            (m) => m.channel_id === channel.id,
+                          )}
+                          screenShares={screenShares}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-5 py-1 text-[10px] text-text-muted/40 italic">
+                      No channels
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Fallback if no categories and no server info yet */}
+        {categories.length === 0 && !channels.some((c) => !c.category_id) && (
+          <div className="flex flex-col items-center justify-center h-20 text-text-muted/30">
+            <Plus className="w-5 h-5 mb-1 opacity-20" />
+            <span className="text-[10px] uppercase tracking-tighter">
+              No channels yet
+            </span>
+          </div>
         )}
       </div>
       {/* Voice status bar */}

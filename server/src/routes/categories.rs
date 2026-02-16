@@ -204,3 +204,34 @@ pub async fn update_category(
 
     Ok((StatusCode::OK, Json(updated_category)))
 }
+
+pub async fn reorder_categories(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<crate::models::ReorderCategoriesRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let claims = extract_claims(&state.jwt_secret, &headers).map_err(|e| (e.0, e.1))?;
+    if !user_has_permission(&state, &claims.sub, Permissions::MANAGE_CHANNELS)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))? 
+    {
+        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+    }
+
+    let server_id = extract_server_id(&headers);
+
+    for item in req.positions {
+        let _ = category::Entity::update_many()
+            .col_expr(category::Column::Position, Expr::value(item.position))
+            .filter(category::Column::Id.eq(&item.id))
+            .filter(category::Column::ServerId.eq(&server_id))
+            .exec(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update category {} position: {e}", item.id);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+            })?;
+    }
+
+    Ok(StatusCode::OK)
+}

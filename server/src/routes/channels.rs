@@ -104,6 +104,8 @@ pub async fn create_channel(
     let position = max_pos.unwrap_or(0) + 1;
     let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
+    let category_id = req.category_id.clone();
+    
     let new_channel = channel::ActiveModel {
         id: Set(id.clone()),
         name: Set(name.clone()),
@@ -113,7 +115,7 @@ pub async fn create_channel(
         channel_type: Set(channel_type.clone()),
         encrypted: Set(false),
         server_id: Set(server_id.clone()),
-        category_id: Set(1), // Default category (uncategorized)
+        category_id: Set(category_id.clone()),
     };
 
     channel::Entity::insert(new_channel)
@@ -133,8 +135,42 @@ pub async fn create_channel(
         channel_type,
         encrypted: false,
         server_id,
-        category_id: 1, // Default category (uncategorized)
+        category_id: category_id.clone(),
     };
 
     Ok((StatusCode::CREATED, Json(ch)))
+}
+
+pub async fn reorder_channels(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<crate::models::ReorderChannelsRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
+    
+    // Check for MANAGE_CHANNELS permission
+    if !crate::routes::roles::user_has_permission(&state, &claims.sub, crate::models::Permissions::MANAGE_CHANNELS)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))? 
+    {
+        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+    }
+
+    let server_id = extract_server_id(&headers);
+
+    for item in req.channels {
+        let _ = channel::Entity::update_many()
+            .col_expr(channel::Column::Position, Expr::value(item.position))
+            .col_expr(channel::Column::CategoryId, Expr::value(item.category_id))
+            .filter(channel::Column::Id.eq(&item.id))
+            .filter(channel::Column::ServerId.eq(&server_id))
+            .exec(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update channel {} position/category: {e}", item.id);
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+            })?;
+    }
+
+    Ok(StatusCode::OK)
 }

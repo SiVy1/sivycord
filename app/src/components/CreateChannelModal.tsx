@@ -1,7 +1,7 @@
-import { useState } from "react";
-import type { ServerEntry } from "../types";
+import { useEffect, useState } from "react";
+import type { ServerEntry, Category } from "../types";
 import { getApiUrl } from "../types";
-import { Mic } from "lucide-react";
+import { Mic, FolderTree } from "lucide-react";
 
 export function CreateChannelModal({
   server,
@@ -15,8 +15,33 @@ export function CreateChannelModal({
   const baseUrl = getApiUrl(server.config.host, server.config.port);
   const [name, setName] = useState("");
   const [type, setType] = useState<"text" | "voice">("text");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | "none">(
+    "none",
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const guildId = server.config.guildId || "default";
+
+  useEffect(() => {
+    fetch(`${baseUrl}/api/servers/${guildId}/categories`, {
+      headers: {
+        ...(server.config.authToken
+          ? { Authorization: `Bearer ${server.config.authToken}` }
+          : {}),
+      },
+    })
+      .then((r) => r.json())
+      .then((data: Category[]) => {
+        setCategories(data);
+        if (data.length > 0) {
+          // Default to first category if available
+          setSelectedCategoryId(data[0].id);
+        }
+      })
+      .catch((err) => console.error("Failed to fetch categories:", err));
+  }, [baseUrl, guildId, server.config.authToken]);
 
   const handleCreate = async () => {
     const trimmed = name.trim().toLowerCase().replace(/\s+/g, "-");
@@ -40,6 +65,8 @@ export function CreateChannelModal({
           name: trimmed,
           description: "",
           channel_type: type,
+          category_id:
+            selectedCategoryId === "none" ? null : selectedCategoryId,
         }),
       });
 
@@ -102,8 +129,32 @@ export function CreateChannelModal({
           placeholder="channel-name"
           autoFocus
           onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-          className="w-full px-4 py-2.5 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent transition-colors"
+          className="w-full px-4 py-2.5 bg-bg-input border border-border rounded-xl text-text-primary placeholder:text-text-muted text-sm outline-none focus:border-accent transition-colors mb-4"
         />
+
+        {/* Category selector */}
+        {categories.length > 0 && (
+          <div className="mb-4">
+            <label className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-1 mb-1.5 block">
+              Category
+            </label>
+            <div className="relative group/select">
+              <FolderTree className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted group-focus-within/select:text-accent transition-colors" />
+              <select
+                value={selectedCategoryId}
+                onChange={(e) => setSelectedCategoryId(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-bg-input border border-border rounded-xl text-text-primary text-sm outline-none focus:border-accent transition-colors appearance-none cursor-pointer"
+              >
+                <option value="none">No Category</option>
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
 
         {error && <p className="text-danger text-xs mt-2">{error}</p>}
 

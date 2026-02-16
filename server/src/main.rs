@@ -107,6 +107,38 @@ async fn main() {
             .await;
     }
 
+    // --- Seed default category for the "default" server ---
+    {
+        use sea_orm::{EntityTrait, Set, QueryFilter, ColumnTrait};
+        use entities::{category, channel};
+        
+        let default_category_id = "default-category".to_string();
+        let default_cat = category::ActiveModel {
+            id: Set(default_category_id.clone()),
+            name: Set("Uncategorized".to_string()),
+            position: Set(0),
+            server_id: Set("default".to_string()),
+        };
+        
+        let _ = category::Entity::insert(default_cat)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(category::Column::Id)
+                    .do_nothing()
+                    .to_owned()
+            )
+            .do_nothing()
+            .exec(&db)
+            .await;
+
+        // Assign existing channels to this category if they have none
+        let _ = channel::Entity::update_many()
+            .col_expr(channel::Column::CategoryId, sea_orm::sea_query::Expr::value(Some(default_category_id)))
+            .filter(channel::Column::ServerId.eq("default"))
+            .filter(channel::Column::CategoryId.is_null())
+            .exec(&db)
+            .await;
+    }
+
     let conn_token = models::ConnectionToken {
         host: args.external_host.clone(),
         port: args.external_port.unwrap_or(port),
@@ -173,6 +205,7 @@ async fn main() {
         // REST API
         .route("/api/channels", get(routes::channels::list_channels))
         .route("/api/channels", post(routes::channels::create_channel))
+        .route("/api/channels/reorder", put(routes::channels::reorder_channels))
         .route(
             "/api/channels/{channel_id}/messages",
             get(routes::messages::get_messages),
@@ -181,10 +214,11 @@ async fn main() {
         .route("/api/join-direct", post(routes::invite::join_direct))
         .route("/api/server", get(routes::server_info::get_server_info))
         .route("/api/server", put(routes::server_info::update_server_info))
-        .route("/api/servers/:id/categories", get(routes::categories::list_categories))
-        .route("/api/servers/:id/categories", post(routes::categories::create_category))
-        .route("/api/servers/:id/categories/{category_id}", put(routes::categories::update_category))
-        .route("/api/servers/:id/categories/{category_id}", delete(routes::categories::delete_category))
+        .route("/api/servers/{id}/categories", get(routes::categories::list_categories))
+        .route("/api/servers/{id}/categories", post(routes::categories::create_category))
+        .route("/api/servers/{id}/categories/reorder", put(routes::categories::reorder_categories))
+        .route("/api/servers/{id}/categories/{category_id}", put(routes::categories::update_category))
+        .route("/api/servers/{id}/categories/{category_id}", delete(routes::categories::delete_category))
         // Admin
         .route("/api/audit-logs", get(routes::audit_logs::list_audit_logs))
         .route("/api/stats", get(routes::stats::get_server_stats))
