@@ -28,10 +28,10 @@ export function MessageReactions({
             key={g.emoji}
             title={`${g.emoji} (${g.count})`}
             onClick={() => onToggleReaction(g.emoji)}
-            className={`px-2 py-0.5 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all duration-200 hover:scale-105 active:scale-95 ${
+            className={`px-2 py-0.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer border ${
               hasOwn
-                ? "bg-primary/20 border-primary/40 text-primary shadow-sm shadow-primary/10"
-                : "bg-bg-surface/40 border-border/40 text-text-muted hover:bg-bg-surface/60 hover:border-border/60"
+                ? "bg-accent/20 border-accent/30 text-accent"
+                : "bg-bg-tertiary/50 border-transparent hover:bg-bg-tertiary hover:border-bg-tertiary text-text-muted"
             }`}
           >
             <span className="text-[14px] leading-none drop-shadow-sm select-none">
@@ -53,7 +53,7 @@ export function MessageReactions({
       })}
       {/* Add reaction button (+ icon) */}
       <button
-        className="px-2 py-0.5 rounded-lg border border-border/30 bg-bg-surface/20 text-text-muted/60 hover:text-text-muted hover:bg-bg-surface/40 hover:border-border/50 transition-all flex items-center justify-center cursor-pointer"
+        className="px-2 py-0.5 rounded-lg bg-bg-tertiary/30 text-text-muted/60 hover:text-text-primary hover:bg-bg-tertiary transition-all flex items-center justify-center cursor-pointer"
         title="Add reaction"
         onClick={onOpenPicker}
       >
