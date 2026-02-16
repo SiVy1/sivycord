@@ -126,6 +126,12 @@ else
         info "Updating PORT to $PORT in $ENV_FILE..."
         sed -i "s/^PORT=.*/PORT=$PORT/" "$ENV_FILE"
     fi
+    if grep -q "EXTERNAL_HOST=" "$ENV_FILE"; then
+        info "Updating EXTERNAL_HOST to $EXTERNAL_HOST in $ENV_FILE..."
+        sed -i "s/^EXTERNAL_HOST=.*/EXTERNAL_HOST=$EXTERNAL_HOST/" "$ENV_FILE"
+    else
+        echo "EXTERNAL_HOST=$EXTERNAL_HOST" >> "$ENV_FILE"
+    fi
 fi
 
 # ── Systemd service ─────────────────────────────────
