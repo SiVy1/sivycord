@@ -261,18 +261,6 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
               )}
             </div>
           </section>{" "}
-          {/* Sound Settings Section */}
-          <section>
-            <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-[0.2em] mb-4">
-              Sound Settings
-            </h4>
-            <div className="space-y-4">
-              <p className="text-xs text-text-muted">
-                Custom sound settings coming soon! Admins will be able to
-                configure server-wide sounds for voice events.
-              </p>
-            </div>
-          </section>
           {/* Logout Section */}
           {currentUser && (
             <section className="pt-6 border-t border-border/50">

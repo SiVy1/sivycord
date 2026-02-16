@@ -5,6 +5,7 @@ import { ChatArea } from "./ChatArea.tsx";
 import { MemberListPanel } from "./MemberListPanel.tsx";
 import { useStore } from "../store";
 import { type ChatEntry, getApiUrl } from "../types";
+import { useHotkey } from "../hooks/useHotkey.ts";
 
 export function MainLayout() {
   const activeServerId = useStore((s) => s.activeServerId);
@@ -13,10 +14,9 @@ export function MainLayout() {
   const [showMembers, setShowMembers] = useState(true);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
-
+  useHotkey();
   const fetchNodeId = useStore((s) => s.fetchNodeId);
   const addMessage = useStore((s) => s.addMessage);
-
   // Initialize Iroh
   useEffect(() => {
     fetchNodeId();
@@ -52,7 +52,9 @@ export function MainLayout() {
           if (parsed.content) content = parsed.content;
           if (parsed.author) userName = parsed.author;
           if (parsed.channel_id) channelId = parsed.channel_id;
-        } catch { /* raw string fallback */ }
+        } catch {
+          /* raw string fallback */
+        }
 
         addMessage({
           id: payload.key,
