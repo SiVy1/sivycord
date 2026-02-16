@@ -170,6 +170,34 @@ pub struct AssignRoleRequest {
 // ─── API Types ───
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct CreateCategoryRequest {
+    pub name: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateCategoryRequest {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub position: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Category {
+    pub id: String,
+    pub server_id: String,
+    pub name: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CategoryWithChannels {
+    #[serde(flatten)]
+    pub category: Category,
+    pub channels: Vec<Channel>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct MessageEdit {
     pub message_id: String,
     pub content: String,

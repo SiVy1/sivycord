@@ -181,6 +181,10 @@ async fn main() {
         .route("/api/join-direct", post(routes::invite::join_direct))
         .route("/api/server", get(routes::server_info::get_server_info))
         .route("/api/server", put(routes::server_info::update_server_info))
+        .route("/api/servers/:id/categories", get(routes::categories::list_categories))
+        .route("/api/servers/:id/categories", post(routes::categories::create_category))
+        .route("/api/servers/:id/categories/{category_id}", put(routes::categories::update_category))
+        .route("/api/servers/:id/categories/{category_id}", delete(routes::categories::delete_category))
         // Admin
         .route("/api/audit-logs", get(routes::audit_logs::list_audit_logs))
         .route("/api/stats", get(routes::stats::get_server_stats))

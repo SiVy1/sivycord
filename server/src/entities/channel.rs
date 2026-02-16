@@ -1,6 +1,8 @@
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::entities::category;
+
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "channels")]
 pub struct Model {
@@ -16,6 +18,8 @@ pub struct Model {
     pub encrypted: bool,
     #[serde(default = "default_server_id")]
     pub server_id: String,
+    #[serde(default)]
+    pub category_id: i64,
 }
 
 fn default_channel_type() -> String {
@@ -28,6 +32,13 @@ fn default_server_id() -> String {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
+     #[sea_orm(
+        belongs_to = "super::category::Entity",
+        from = "Column::CategoryId", 
+        to = "super::category::Column::Id",
+        on_delete = "Cascade"
+    )]
+    Category,
     #[sea_orm(has_many = "super::message::Entity")]
     Message,
     #[sea_orm(
@@ -47,6 +58,12 @@ impl Related<super::message::Entity> for Entity {
 impl Related<super::server::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Server.def()
+    }
+}
+
+impl sea_orm::Related<category::Entity> for Entity {
+    fn to() -> sea_orm::RelationDef {
+        Relation::Category.def()
     }
 }
 

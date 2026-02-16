@@ -15,3 +15,4 @@ pub mod stats;
 pub mod webhooks;
 pub mod encryption;
 pub mod federation;
+pub mod categories;

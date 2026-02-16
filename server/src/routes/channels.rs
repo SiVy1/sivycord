@@ -113,6 +113,7 @@ pub async fn create_channel(
         channel_type: Set(channel_type.clone()),
         encrypted: Set(false),
         server_id: Set(server_id.clone()),
+        category_id: Set(1), // Default category (uncategorized)
     };
 
     channel::Entity::insert(new_channel)
@@ -132,6 +133,7 @@ pub async fn create_channel(
         channel_type,
         encrypted: false,
         server_id,
+        category_id: 1, // Default category (uncategorized)
     };
 
     Ok((StatusCode::CREATED, Json(ch)))
