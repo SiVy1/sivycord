@@ -5,6 +5,7 @@ import { useStore } from "../../store";
 import { ChatReplyPreview } from "./input/ChatReplyPreview";
 import { ChatTypingIndicators } from "./input/ChatTypingIndicators";
 import { ChatFileUpload } from "./input/ChatFileUpload";
+import { Clock, Smile, SendHorizontal } from "lucide-react";
 
 const MAX_MESSAGE_LENGTH = 2000;
 
@@ -92,19 +93,7 @@ export function ChatInput({
 
       {isTimedOut && timeoutFinishTime && (
         <div className="mb-2 bg-red-500/10 border border-red-500/20 text-red-500 text-xs px-3 py-1.5 rounded flex items-center gap-2">
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+          <Clock className="w-4 h-4" />
           <span>
             You are timed out. You can send messages again in{" "}
             <span className="font-bold">
@@ -176,19 +165,7 @@ export function ChatInput({
             disabled={wsStatus !== "connected"}
             title="Emoji"
           >
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2.5}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15.182 15.182a4.5 4.5 0 01-6.364 0M21 12a9 9 0 11-18 0 9 9 0 0118 0zM9.75 9.75c0 .414-.168.75-.375.75S9 10.164 9 9.75 9.168 9 9.375 9s.375.336.375.75zm-.375 0h.008v.015h-.008V9.75zm5.625 0c0 .414-.168.75-.375.75s-.375-.336-.375-.75.168-.75.375-.75.375.336.375.75zm-.375 0h.008v.015h-.008V9.75z"
-              />
-            </svg>
+            <Smile className="w-5 h-5" />
           </button>
         )}
         <button
@@ -198,19 +175,7 @@ export function ChatInput({
           }
           className="p-3 text-accent disabled:text-text-muted hover:scale-110 active:scale-95 transition-all cursor-pointer"
         >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"
-            />
-          </svg>
+          <SendHorizontal className="w-6 h-6" />
         </button>
       </div>
       {uploading && (

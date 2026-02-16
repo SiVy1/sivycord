@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useStore } from "../../store";
 import type { ServerEntry, ServerStats } from "../../types";
 import { getApiUrl } from "../../types";
+import { Play } from "lucide-react";
 
 export function ServerTab({ server }: { server: ServerEntry }) {
   const [name, setName] = useState(server.config.serverName || "");
@@ -189,13 +190,7 @@ export function ServerTab({ server }: { server: ServerEntry }) {
                       className="p-1 hover:bg-bg-hover rounded text-accent transition-colors flex-shrink-0"
                       title="Play Preview"
                     >
-                      <svg
-                        className="w-4 h-4"
-                        fill="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
+                      <Play className="w-4 h-4" />
                     </button>
                   </div>
                 )}
@@ -235,13 +230,7 @@ export function ServerTab({ server }: { server: ServerEntry }) {
                       className="p-1 hover:bg-bg-hover rounded text-accent transition-colors flex-shrink-0"
                       title="Play Preview"
                     >
-                      <svg
-                        className="w-4 h-4"
-                        fill="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path d="M8 5v14l11-7z" />
-                      </svg>
+                      <Play className="w-4 h-4" />
                     </button>
                   </div>
                 )}

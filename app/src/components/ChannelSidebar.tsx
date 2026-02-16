@@ -8,6 +8,16 @@ import { AdminPanel } from "./AdminPanel";
 import { CreateChannelModal } from "./CreateChannelModal";
 import { P2PInviteModal } from "./P2PInviteModal";
 import { type Channel, type P2PChannel, getApiUrl } from "../types";
+import {
+  MicOff,
+  HeadphoneOff,
+  Copy,
+  Plus,
+  Hash,
+  Volume2,
+  Settings,
+  ShieldAlert,
+} from "lucide-react";
 
 interface VoiceMember {
   user_id: string;
@@ -54,32 +64,9 @@ const VoiceMemberRow = memo(function VoiceMemberRow({
           </span>
         )}
         {member.is_deafened ? (
-          <svg
-            className="w-3.5 h-3.5 text-danger opacity-80"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
-          >
-            <path d="M3 11a5 5 0 0 1 5-5h8a5 5 0 0 1 5 5v2a5 5 0 0 1-5 5H8a5 5 0 0 1-5-5v-2Z" />
-            <path d="M12 6v12" />
-            <line x1="2" y1="2" x2="22" y2="22" />
-          </svg>
+          <HeadphoneOff className="w-3.5 h-3.5 text-danger opacity-80" />
         ) : member.is_muted ? (
-          <svg
-            className="w-3.5 h-3.5 text-danger opacity-80"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
-          >
-            <path d="m12 8-4 4 4 4" />
-            <path d="M12 2v20" />
-            <path d="M19 12h.01" />
-            <path d="M19 6h.01" />
-            <path d="M19 18h.01" />
-            <line x1="2" y1="2" x2="22" y2="22" />
-          </svg>
+          <MicOff className="w-3.5 h-3.5 text-danger opacity-80" />
         ) : null}
       </div>
     </div>
@@ -190,14 +177,15 @@ export function ChannelSidebar() {
   return (
     <div className="w-64 min-w-64 bg-bg-secondary border-r border-border flex flex-col">
       {/* Invite Modal */}
-      {showInvite && activeServer?.type === "p2p" && activeServer.config.p2p?.ticket && (
-        <P2PInviteModal
-          ticket={activeServer.config.p2p.ticket}
-          serverName={activeServer.displayName}
-          onClose={() => setShowInvite(false)}
-        />
-      )}
-
+      {showInvite &&
+        activeServer?.type === "p2p" &&
+        activeServer.config.p2p?.ticket && (
+          <P2PInviteModal
+            ticket={activeServer.config.p2p.ticket}
+            serverName={activeServer.displayName}
+            onClose={() => setShowInvite(false)}
+          />
+        )}
       {/* Server header */}
       <div className="h-14 flex items-center px-4 border-b border-border/50 justify-between bg-bg-secondary/80 backdrop-blur-md sticky top-0 z-10">
         <h2 className="text-sm font-bold text-text-primary truncate tracking-tight">
@@ -215,19 +203,7 @@ export function ChannelSidebar() {
               className="p-1.5 rounded-lg text-text-muted hover:text-accent hover:bg-bg-surface transition-all cursor-pointer"
               title="Copy Invite"
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
-                />
-              </svg>
+              <Copy className="w-4 h-4" />
             </button>
           )}
           {/* Create Channel */}
@@ -237,19 +213,7 @@ export function ChannelSidebar() {
               className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface transition-all cursor-pointer"
               title="Create channel"
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 4.5v15m7.5-7.5h-15"
-                />
-              </svg>
+              <Plus className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -276,15 +240,13 @@ export function ChannelSidebar() {
                   }
                 `}
               >
-                <span
-                  className={`text-lg leading-none ${
+                <Hash
+                  className={`w-4 h-4 ${
                     activeChannelId === channel.id
                       ? "text-accent"
                       : "text-text-muted group-hover:text-text-secondary"
                   }`}
-                >
-                  #
-                </span>
+                />
                 <span className="truncate">{channel.name}</span>
               </button>
             ))}
@@ -325,19 +287,7 @@ export function ChannelSidebar() {
                           : "bg-bg-surface text-text-muted group-hover:text-text-secondary"
                       }`}
                     >
-                      <svg
-                        className="w-4 h-4 shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z"
-                        />
-                      </svg>
+                      <Volume2 className="w-4 h-4 shrink-0" />
                     </div>
                     <span className="truncate">{channel.name}</span>
                     {isConnected && (
@@ -392,31 +342,13 @@ export function ChannelSidebar() {
           title="Admin Panel"
           className="ml-auto p-1.5 rounded-lg hover:bg-bg-hover text-text-muted hover:text-amber-400 transition-colors cursor-pointer"
         >
-          🛡️
+          <ShieldAlert className="w-4 h-4" />
         </button>
         <button
           onClick={() => setShowSettings(true)}
           className="p-1.5 rounded-lg hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors cursor-pointer"
         >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-            />
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-            />
-          </svg>
+          <Settings className="w-4 h-4" />
         </button>
       </div>{" "}
       {/* User Settings Modal */}

@@ -8,6 +8,17 @@ import { ServerTab } from "./admin/ServerTab";
 import { InvitesTab, AuditLogsTab } from "./admin/InvitesTab";
 import { BotsTab } from "./admin/BotsTab";
 import { FederationTab } from "./admin/FederationTab";
+import {
+  X,
+  Shield,
+  UserCog,
+  Users,
+  Settings,
+  Mail,
+  ClipboardList,
+  Bot,
+  Globe,
+} from "lucide-react";
 
 interface AdminPanelProps {
   onClose: () => void;
@@ -99,8 +110,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-border/50">
           <div>
-            <h2 className="text-2xl font-bold text-text-primary">
-              🛡️ Admin Panel
+            <h2 className="text-2xl font-bold text-text-primary flex items-center gap-2">
+              <Shield className="w-6 h-6 text-accent" />
+              Admin Panel
             </h2>
             <p className="text-sm text-text-muted mt-1">
               Manage server settings, roles, and users
@@ -110,96 +122,91 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
             onClick={onClose}
             className="p-2 hover:bg-bg-hover rounded-xl transition-colors text-text-muted hover:text-text-primary"
           >
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+            <X className="w-6 h-6" />
           </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 px-6 pt-4 border-b border-border/30">
+        <div className="flex gap-2 px-6 pt-4 border-b border-border/30 overflow-x-auto">
           <button
             onClick={() => setActiveTab("roles")}
-            className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
               activeTab === "roles"
                 ? "bg-bg-surface text-accent border-b-2 border-accent"
                 : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
             }`}
           >
-            🎭 Roles
+            <UserCog className="w-4 h-4" />
+            Roles
           </button>
           <button
             onClick={() => setActiveTab("users")}
-            className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
               activeTab === "users"
                 ? "bg-bg-surface text-accent border-b-2 border-accent"
                 : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
             }`}
           >
-            👥 Users
+            <Users className="w-4 h-4" />
+            Users
           </button>
           <button
             onClick={() => setActiveTab("server")}
-            className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
               activeTab === "server"
                 ? "bg-bg-surface text-accent border-b-2 border-accent"
                 : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
             }`}
           >
-            ⚙️ Server
+            <Settings className="w-4 h-4" />
+            Server
           </button>
           <button
             onClick={() => setActiveTab("invites")}
-            className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
               activeTab === "invites"
                 ? "bg-bg-surface text-accent border-b-2 border-accent"
                 : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
             }`}
           >
-            ✉️ Invites
+            <Mail className="w-4 h-4" />
+            Invites
           </button>
           <button
             onClick={() => setActiveTab("audit")}
-            className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
               activeTab === "audit"
                 ? "bg-bg-surface text-accent border-b-2 border-accent"
                 : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
             }`}
           >
-            📜 Audit Logs
+            <ClipboardList className="w-4 h-4" />
+            Audit Logs
           </button>
           {activeServer.type === "legacy" && (
             <button
               onClick={() => setActiveTab("bots")}
-              className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+              className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
                 activeTab === "bots"
                   ? "bg-bg-surface text-accent border-b-2 border-accent"
                   : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
               }`}
             >
-              🤖 Bots
+              <Bot className="w-4 h-4" />
+              Bots
             </button>
           )}
           {activeServer.type === "legacy" && (
             <button
               onClick={() => setActiveTab("federation")}
-              className={`px-6 py-3 text-sm font-bold rounded-t-xl transition-all ${
+              className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
                 activeTab === "federation"
                   ? "bg-bg-surface text-accent border-b-2 border-accent"
                   : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
               }`}
             >
-              🌐 Federation
+              <Globe className="w-4 h-4" />
+              Federation
             </button>
           )}
         </div>
@@ -212,7 +219,9 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
           {activeTab === "invites" && <InvitesTab server={activeServer} />}
           {activeTab === "audit" && <AuditLogsTab server={activeServer} />}
           {activeTab === "bots" && <BotsTab server={activeServer} />}
-          {activeTab === "federation" && <FederationTab server={activeServer} />}
+          {activeTab === "federation" && (
+            <FederationTab server={activeServer} />
+          )}
         </div>
       </div>
     </div>

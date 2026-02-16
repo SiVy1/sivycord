@@ -12,6 +12,7 @@ import { EmojiPicker } from "../EmojiPicker";
 import { MessageActions } from "./message/MessageActions";
 import { MessageHeader } from "./message/MessageHeader";
 import { MessageReactions } from "./message/MessageReactions";
+import { Reply } from "lucide-react";
 
 interface MessageItemProps {
   msg: Message;
@@ -119,7 +120,7 @@ export function MessageItem({
   };
 
   return (
-    <div className={`group relative px-4 ${showHeader ? "mt-3" : ""}`}>
+    <div className={`group relative px-4 ${showHeader ? "mt-0.5" : ""}`}>
       {/* Hover action buttons */}
       {!isEditing && (
         <MessageActions
@@ -145,7 +146,7 @@ export function MessageItem({
           msg.pinned_at
             ? "bg-accent/5 border-l-2 border-accent/40 rounded-r-lg"
             : ""
-        } transition-colors pb-1`}
+        } transition-colors pb-0.5`}
       >
         {showHeader && <MessageHeader msg={msg} activeServer={activeServer} />}
 
@@ -191,19 +192,7 @@ export function MessageItem({
             {/* Quoted replied message */}
             {msg.repliedMessage && (
               <div className="flex items-center gap-2 mb-1 px-3 py-1.5 border-l-2 border-accent/60 bg-bg-surface/40 rounded-r-lg cursor-pointer hover:bg-bg-surface/70 transition-colors">
-                <svg
-                  className="w-3 h-3 text-accent/60 flex-shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3"
-                  />
-                </svg>
+                <Reply className="w-3 h-3 text-accent/60 flex-shrink-0" />
                 <span className="text-[11px] text-accent font-semibold">
                   @{msg.repliedMessage.userName}
                 </span>
@@ -212,7 +201,7 @@ export function MessageItem({
                 </span>
               </div>
             )}
-            <div className="text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-1.5 -mx-4 break-words whitespace-pre-wrap">
+            <div className="text-sm text-text-primary/90 leading-relaxed hover:bg-bg-secondary/40 transition-colors rounded-xl px-4 py-0.5 -mx-4 break-words whitespace-pre-wrap">
               <MessageContent content={msg.content} server={activeServer!} />
             </div>
           </div>

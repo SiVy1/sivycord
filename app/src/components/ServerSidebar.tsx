@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useStore } from "../store";
 import { AddServerModal } from "./AddServerModal";
+import { ArrowLeft, Plus } from "lucide-react";
 
 export function ServerSidebar() {
   const [showModal, setShowModal] = useState(false);
@@ -21,9 +22,7 @@ export function ServerSidebar() {
             bg-bg-surface text-text-secondary hover:bg-accent hover:text-white hover:rounded-[12px] hover:shadow-lg hover:shadow-accent/20
           `}
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-          </svg>
+          <ArrowLeft className="w-5 h-5" />
         </button>
 
         <div className="w-8 h-px bg-border my-1" />
@@ -62,19 +61,7 @@ export function ServerSidebar() {
           title="Add a server"
           className="w-12 h-12 rounded-[18px] bg-bg-surface text-success hover:bg-success hover:text-white flex items-center justify-center transition-all duration-300 ease-out hover:rounded-[12px] hover:shadow-lg hover:shadow-success/20 cursor-pointer group"
         >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 4.5v15m7.5-7.5h-15"
-            />
-          </svg>
+          <Plus className="w-5 h-5" />
         </button>
       </div>
 

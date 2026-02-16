@@ -1,4 +1,5 @@
 import React from "react";
+import { Network, Ticket, Server } from "lucide-react";
 
 type Mode = "choice" | "legacy" | "p2p-create" | "p2p-join";
 
@@ -31,19 +32,7 @@ export function AddServerChoice({ onClose, setMode }: AddServerChoiceProps) {
           >
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all">
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
+                <Network className="w-6 h-6" />
               </div>
               <div>
                 <h3 className="font-bold text-text-primary">
@@ -62,19 +51,7 @@ export function AddServerChoice({ onClose, setMode }: AddServerChoiceProps) {
           >
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all">
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
-                  />
-                </svg>
+                <Ticket className="w-6 h-6" />
               </div>
               <div>
                 <h3 className="font-bold text-text-primary">Join P2P Server</h3>
@@ -102,19 +79,7 @@ export function AddServerChoice({ onClose, setMode }: AddServerChoiceProps) {
           >
             <div className="flex items-center gap-4 opacity-70 group-hover:opacity-100 transition-opacity">
               <div className="w-12 h-12 rounded-xl bg-text-muted/10 flex items-center justify-center text-text-muted group-hover:bg-text-muted group-hover:text-white transition-all">
-                <svg
-                  className="w-6 h-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
-                  />
-                </svg>
+                <Server className="w-6 h-6" />
               </div>
               <div>
                 <h3 className="font-bold text-text-primary">Classic Server</h3>
