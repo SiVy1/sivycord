@@ -107,11 +107,12 @@ const ChannelItem = memo(function ChannelItem({
   if (channel.channel_type === "voice") {
     return (
       <div>
-        <button
+        <div
+          role="button"
           onClick={onVoiceClick}
           className={`
           w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
-          transition-all duration-150 group relative
+          transition-all duration-150 group relative select-none
           ${
             isConnected
               ? "bg-bg-tertiary text-text-primary font-medium"
@@ -127,7 +128,7 @@ const ChannelItem = memo(function ChannelItem({
             }`}
           />
           <span className="truncate">{channel.name}</span>
-        </button>
+        </div>
 
         {voiceMembers.length > 0 && (
           <div className="ml-6 mt-0.5 mb-1 space-y-0.5 border-l border-border/30 pl-2">
@@ -145,11 +146,12 @@ const ChannelItem = memo(function ChannelItem({
   }
 
   return (
-    <button
+    <div
+      role="button"
       onClick={onClick}
       className={`
       w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
-      transition-all duration-150 group
+      transition-all duration-150 group select-none
       ${
         isActive
           ? "bg-bg-tertiary text-text-primary font-medium"
@@ -165,7 +167,7 @@ const ChannelItem = memo(function ChannelItem({
         }`}
       />
       <span className="truncate">{channel.name}</span>
-    </button>
+    </div>
   );
 });
 
@@ -186,6 +188,7 @@ export function ChannelSidebar() {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(
     new Set(),
   );
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const { joinVoice, leaveVoice } = useVoice();
 
   const [showCreate, setShowCreate] = useState(false);
@@ -309,19 +312,51 @@ export function ChannelSidebar() {
     });
   };
 
+  /* Drag & Drop Handlers */
+
   const handleDragStart = (
     e: React.DragEvent,
     type: "channel" | "category",
     id: string,
   ) => {
+    e.stopPropagation();
     e.dataTransfer.setData("dragType", type);
     e.dataTransfer.setData("id", id);
+    e.dataTransfer.setData("text/plain", `${type}:${id}`);
     e.dataTransfer.effectAllowed = "move";
+
+    // Optional: Set drag image or opacity
+    const target = e.currentTarget;
+    if (target instanceof HTMLElement) {
+      setTimeout(() => {
+        target.style.opacity = "0.5";
+      }, 0);
+    }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragEnd = (e: React.DragEvent) => {
+    const target = e.currentTarget;
+    if (target instanceof HTMLElement) {
+      target.style.opacity = "";
+    }
+    setDragOverId(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, id?: string) => {
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "move";
+
+    if (id && dragOverId !== id) {
+      setDragOverId(id);
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) {
+      return;
+    }
+    setDragOverId(null);
   };
 
   const handleDropChannel = async (
@@ -329,8 +364,17 @@ export function ChannelSidebar() {
     targetCategoryId: string | null,
   ) => {
     e.preventDefault();
-    const type = e.dataTransfer.getData("dragType");
-    const draggedId = e.dataTransfer.getData("id");
+    setDragOverId(null);
+    let type = e.dataTransfer.getData("dragType");
+    let draggedId = e.dataTransfer.getData("id");
+
+    // Fallback if custom types are lost
+    if (!type || !draggedId) {
+      const plain = e.dataTransfer.getData("text/plain");
+      if (plain && plain.includes(":")) {
+        [type, draggedId] = plain.split(":");
+      }
+    }
 
     if (type !== "channel") return;
 
@@ -376,8 +420,16 @@ export function ChannelSidebar() {
 
   const handleDropCategory = async (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
-    const type = e.dataTransfer.getData("dragType");
-    const draggedId = e.dataTransfer.getData("id");
+    setDragOverId(null);
+    let type = e.dataTransfer.getData("dragType");
+    let draggedId = e.dataTransfer.getData("id");
+
+    if (!type || !draggedId) {
+      const plain = e.dataTransfer.getData("text/plain");
+      if (plain && plain.includes(":")) {
+        [type, draggedId] = plain.split(":");
+      }
+    }
 
     if (type !== "category" || draggedId === targetId) return;
 
@@ -566,19 +618,22 @@ export function ChannelSidebar() {
         </AnimatePresence>
       </div>
       {/* Channel list */}
-      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-6 custom-scrollbar">
-        {/* Uncategorized channels at the top */}
+      <div className="flex-1 overflow-y-auto py-3 px-2 custom-scrollbar">
         {channels.some((c) => !c.category_id) && (
           <div
-            onDragOver={handleDragOver}
+            className={`group/uncat transition-all duration-200 rounded-lg p-1 mb-6 ${dragOverId === "uncategorized" ? "bg-accent/10 ring-2 ring-accent/30 ring-inset" : ""}`}
+            onDragOver={(e) => handleDragOver(e, "uncategorized")}
+            onDragEnter={(e) => handleDragOver(e, "uncategorized")}
+            onDragLeave={handleDragLeave}
             onDrop={(e) => handleDropChannel(e, null)}
           >
-            <div className="text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-2 mb-1">
-              Uncategorized
+            <div className="text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-2 mb-1 flex items-center justify-between">
+              <span>Uncategorized</span>
             </div>
-            <div className="space-y-0.5">
+            <div className="space-y-0.5 min-h-[10px]">
               {channels
                 .filter((c) => !c.category_id)
+                .sort((a, b) => a.position - b.position)
                 .map((channel) => (
                   <div
                     key={channel.id}
@@ -586,6 +641,9 @@ export function ChannelSidebar() {
                     onDragStart={(e) =>
                       handleDragStart(e, "channel", channel.id)
                     }
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, "uncategorized")}
+                    className="relative"
                   >
                     <ChannelItem
                       channel={channel}
@@ -610,35 +668,61 @@ export function ChannelSidebar() {
 
         {/* Categories */}
         {categories.map((cat) => {
-          const catChannels = channels.filter((c) => c.category_id === cat.id);
+          const catChannels = channels
+            .filter((c) => c.category_id === cat.id)
+            .sort((a, b) => a.position - b.position);
           const isCollapsed = collapsedCategories.has(cat.id);
 
           return (
             <div
               key={cat.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, "category", cat.id)}
-              onDragOver={handleDragOver}
+              onDragOver={(e) => handleDragOver(e, cat.id)}
+              onDragEnter={(e) => handleDragOver(e, cat.id)}
+              onDragLeave={handleDragLeave}
               onDrop={(e) => {
                 const type = e.dataTransfer.getData("dragType");
-                if (type === "category") handleDropCategory(e, cat.id);
-                else if (type === "channel") handleDropChannel(e, cat.id);
+                if (
+                  type === "category" ||
+                  e.dataTransfer.types.includes("text/plain")
+                ) {
+                  const plain = e.dataTransfer.getData("text/plain");
+                  if (
+                    type === "category" ||
+                    (plain && plain.startsWith("category:"))
+                  ) {
+                    handleDropCategory(e, cat.id);
+                  } else {
+                    handleDropChannel(e, cat.id);
+                  }
+                }
               }}
+              className={`group/cat-section transition-all duration-200 rounded-lg mb-6 p-1 ${
+                dragOverId === cat.id
+                  ? "bg-accent/10 ring-2 ring-accent/30 ring-inset"
+                  : ""
+              }`}
             >
-              <button
-                onClick={() => toggleCategory(cat.id)}
-                className="w-full text-left text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-1 mb-1 flex items-center gap-1 hover:text-text-secondary transition-colors cursor-pointer group/cat"
+              <div
+                draggable
+                onDragStart={(e) => handleDragStart(e, "category", cat.id)}
+                onDragEnd={handleDragEnd}
+                className="cursor-move"
               >
-                {isCollapsed ? (
-                  <ChevronRight className="w-3 h-3 transition-transform" />
-                ) : (
-                  <ChevronDown className="w-3 h-3 transition-transform" />
-                )}
-                <span>{cat.name}</span>
-              </button>
+                <button
+                  onClick={() => toggleCategory(cat.id)}
+                  className="w-full text-left text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-1 mb-1 flex items-center gap-1 hover:text-text-secondary transition-colors cursor-pointer"
+                >
+                  {isCollapsed ? (
+                    <ChevronRight className="w-3 h-3 transition-transform" />
+                  ) : (
+                    <ChevronDown className="w-3 h-3 transition-transform" />
+                  )}
+                  <span>{cat.name}</span>
+                </button>
+              </div>
 
               {!isCollapsed && (
-                <div className="space-y-0.5">
+                <div className="space-y-0.5 min-h-[10px]">
                   {catChannels.length > 0 ? (
                     catChannels.map((channel) => (
                       <div
@@ -647,6 +731,9 @@ export function ChannelSidebar() {
                         onDragStart={(e) =>
                           handleDragStart(e, "channel", channel.id)
                         }
+                        onDragEnd={handleDragEnd}
+                        onDragOver={(e) => handleDragOver(e, cat.id)}
+                        className="relative"
                       >
                         <ChannelItem
                           channel={channel}
