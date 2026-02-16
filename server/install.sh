@@ -39,15 +39,53 @@ if ! command -v cargo &>/dev/null; then
     info "Installing Rust toolchain..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
     source "$HOME/.cargo/env"
+elif command -v rustup &>/dev/null; then
+    info "Updating Rust toolchain..."
+    if [ -f "$HOME/.cargo/env" ]; then
+        source "$HOME/.cargo/env"
+    fi
+    rustup update stable
+fi
+
+# Always try to source cargo env to prefer rustup over system cargo
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
 fi
 
 # ── Build ───────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-info "Building sivyspeak-server (release)..."
 cd "$SCRIPT_DIR"
-cargo build --release
 
 BINARY="$SCRIPT_DIR/target/release/sivyspeak-server"
+
+if [ -f "$BINARY" ]; then
+    info "Found pre-built binary at $BINARY. Using it..."
+else
+    info "Building sivyspeak-server (release)..."
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        info "Delegating build to user '$SUDO_USER' to use their Rust toolchain..."
+        
+        # Ensure target directory is accessible by user
+        mkdir -p "$SCRIPT_DIR/target"
+        chown -R "$SUDO_USER" "$SCRIPT_DIR/target" 2>/dev/null || true
+
+        # Run build as the user who invoked sudo
+        if sudo -u "$SUDO_USER" bash -c "export PATH=\"\$HOME/.cargo/bin:\$PATH\"; command -v rustup >/dev/null"; then
+            sudo -u "$SUDO_USER" bash -c "export PATH=\"\$HOME/.cargo/bin:\$PATH\"; cd \"$SCRIPT_DIR\" && rustup run stable cargo build --release"
+        else
+            sudo -u "$SUDO_USER" bash -c "export PATH=\"\$HOME/.cargo/bin:\$PATH\"; cd \"$SCRIPT_DIR\" && cargo build --release"
+        fi
+    else
+        # Fallback for root/direct execution
+        if command -v rustup &>/dev/null; then
+            # Force using the stable toolchain via rustup
+            rustup run stable cargo build --release
+        else
+            cargo build --release
+        fi
+    fi
+fi
+
 [[ -f "$BINARY" ]] || error "Build failed — binary not found at $BINARY"
 
 # ── Create system user ──────────────────────────────

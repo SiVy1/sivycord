@@ -20,7 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
 tower-http = { version = "0.6", features = ["cors", "fs"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1.10", features = ["v4"] } # Pin to 1.10 for older rustc compatibility
 time = "=0.3.36" # Pin time to avoid edition 2024 issues
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
