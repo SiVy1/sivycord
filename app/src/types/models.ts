@@ -252,3 +252,17 @@ export interface AddPeerResponse {
   peer: FederationPeer;
   shared_secret: string;
 }
+
+export interface ShortCut {
+  key: string;
+  ctrl?: boolean;
+  alt?: boolean;
+  shift?: boolean;
+  action:
+    | "toggle_mute"
+    | "toggle_deafen"
+    | "push_to_talk"
+    | "prev_channel"
+    | "next_channel"
+    | "close_modal";
+}
