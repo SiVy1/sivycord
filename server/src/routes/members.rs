@@ -158,7 +158,7 @@ pub async fn timeout_member(
     Json(payload): Json<TimeoutRequest>,
 ) -> Result<StatusCode, StatusCode> {
     let claims = extract_claims(&state.jwt_secret, &headers).map_err(|e| e.0)?;
-    if !user_has_permission(&state, &claims.sub, Permissions::KICK_MEMBERS).await? {
+    if !user_has_permission(&state, &claims.sub, Permissions::MODERATE_MEMBERS).await? {
         return Err(StatusCode::FORBIDDEN);
     }
 

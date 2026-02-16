@@ -260,6 +260,15 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
                 />
               )}
             </div>
+          </section>
+          {/* Keybinds Section */}
+          <section>
+            <h4 className="text-[10px] font-bold text-text-muted uppercase tracking-[0.2em] mb-4">
+              Keybinds
+            </h4>
+            <div className="space-y-4 bg-bg-primary/50 rounded-2xl border border-border/50 p-6 shadow-sm">
+              <KeybindsSettings />
+            </div>
           </section>{" "}
           {/* Logout Section */}
           {currentUser && (
@@ -290,6 +299,88 @@ export function UserSettingsModal({ onClose }: UserSettingsModalProps) {
             }}
           />
         )}
+    </div>
+  );
+}
+
+function KeybindsSettings() {
+  const shortcuts = useStore((s) => s.shortcuts);
+  const setShortcut = useStore((s) => s.setShortcut);
+  const resetShortcuts = useStore((s) => s.resetShortcuts);
+  const [recordingAction, setRecordingAction] = useState<string | null>(null);
+
+  // Friendly names for actions
+  const ACTION_LABELS: Record<string, string> = {
+    toggle_mute: "Toggle Mute",
+    toggle_deafen: "Toggle Deafen",
+    prev_channel: "Previous Channel",
+    next_channel: "Next Channel",
+    close_modal: "Close Modal/Settings",
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!recordingAction) return;
+
+    if (e.key === "Escape") {
+      setRecordingAction(null);
+      return;
+    }
+
+    const modifiers = [];
+    if (e.ctrlKey) modifiers.push("Ctrl");
+    if (e.altKey) modifiers.push("Alt");
+    if (e.shiftKey) modifiers.push("Shift");
+    if (e.metaKey) modifiers.push("Meta");
+
+    const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+    // Don't register just modifiers
+    if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+
+    const combo = [...modifiers, key].join("+");
+    setShortcut(recordingAction, combo);
+    setRecordingAction(null);
+  };
+
+  useEffect(() => {
+    if (recordingAction) {
+      window.addEventListener("keydown", handleKeyDown, true);
+      return () => window.removeEventListener("keydown", handleKeyDown, true);
+    }
+  }, [recordingAction]);
+
+  return (
+    <div className="space-y-3">
+      {Object.entries(shortcuts).map(([action, combo]) => (
+        <div
+          key={action}
+          className="flex items-center justify-between p-3 rounded-xl bg-bg-surface border border-border/50"
+        >
+          <span className="text-sm font-medium text-text-primary">
+            {ACTION_LABELS[action] || action}
+          </span>
+          <button
+            onClick={() => setRecordingAction(action)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold min-w-[80px] transition-all border ${
+              recordingAction === action
+                ? "bg-accent/10 border-accent text-accent animate-pulse"
+                : "bg-bg-input border-border/50 text-text-secondary hover:border-accent/50 hover:text-accent"
+            }`}
+          >
+            {recordingAction === action ? "Press keys..." : combo}
+          </button>
+        </div>
+      ))}
+      <div className="pt-2 flex justify-end">
+        <button
+          onClick={resetShortcuts}
+          className="text-xs text-text-muted hover:text-danger hover:underline transition-all"
+        >
+          Reset to Defaults
+        </button>
+      </div>
     </div>
   );
 }

@@ -1,34 +1,19 @@
 import React from "react";
-import type { ShortCut } from "../types";
 import { useStore } from "../store";
-import { broadcastTalkingState } from "./voiceHelpers";
-
-const DEFAULT_SHORTCUTS: ShortCut[] = [
-  { key: "m", ctrl: true, shift: true, action: "toggle_mute" },
-  { key: "d", ctrl: true, shift: true, action: "toggle_deafen" },
-  { key: "ArrowUp", alt: true, action: "prev_channel" },
-  { key: "ArrowDown", alt: true, action: "next_channel" },
-  { key: "Escape", action: "close_modal" },
-];
+import {
+  broadcastTalkingState,
+  toggleMute,
+  toggleDeafen,
+} from "./voiceHelpers";
 
 const hotkeyFunctions = {
   toggle_mute: () => {
-    const { isMuted, setMuted } = useStore.getState();
-    setMuted(!isMuted);
-    let userId = useStore.getState().currentUser?.id;
-    if (userId) {
-      useStore.getState().updateVoiceStatus(userId, !isMuted, false);
-    }
-    console.log("Mute toggled:", !isMuted);
+    toggleMute();
+    console.log("Mute toggled via hotkey");
   },
   toggle_deafen: () => {
-    const { isDeafened, setDeafened } = useStore.getState();
-    setDeafened(!isDeafened);
-    let userId = useStore.getState().currentUser?.id;
-    if (userId) {
-      useStore.getState().updateVoiceStatus(userId, !isDeafened, !isDeafened);
-    }
-    console.log("Deafen toggled:", !isDeafened);
+    toggleDeafen();
+    console.log("Deafen toggled via hotkey");
   },
   prev_channel: () => {
     console.log("Previous channel action");
@@ -41,27 +26,17 @@ const hotkeyFunctions = {
   },
 };
 
-export function useHotkey(shortcuts: ShortCut[] = DEFAULT_SHORTCUTS) {
+export function useHotkey() {
   const { pttKey, mode } = useStore((s) => s.voiceSettings);
+  const shortcuts = useStore((s) => s.shortcuts);
   const isPttMode = mode === "ptt";
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      console.log(
-        "Key down:",
-        event.key,
-        "Ctrl:",
-        event.ctrlKey,
-        "Alt:",
-        event.altKey,
-        "Shift:",
-        event.shiftKey,
-      );
       const target = event.target as HTMLElement;
       const isInputActive =
         ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName) ||
         target.isContentEditable;
-
       if (isInputActive && event.key !== "Escape") {
         return;
       }
@@ -71,21 +46,29 @@ export function useHotkey(shortcuts: ShortCut[] = DEFAULT_SHORTCUTS) {
         return;
       }
 
-      for (const shortcut of shortcuts) {
-        const ctrlMatch = !!shortcut.ctrl === event.ctrlKey;
-        const altMatch = !!shortcut.alt === event.altKey;
-        const shiftMatch = !!shortcut.shift === event.shiftKey;
-        // const metaMatch = !!shortcut.meta === event.metaKey;
+      // Check shortcuts
+      for (const [action, combo] of Object.entries(shortcuts)) {
+        const parts = combo.split("+");
+        const key = parts[parts.length - 1].toLowerCase();
+        const modifiers = parts.slice(0, -1);
+
+        const ctrlReq =
+          modifiers.includes("Control") || modifiers.includes("Ctrl");
+        const altReq = modifiers.includes("Alt");
+        const shiftReq = modifiers.includes("Shift");
+        const metaReq =
+          modifiers.includes("Meta") ||
+          modifiers.includes("Command") ||
+          modifiers.includes("Win");
+
         if (
-          event.key === shortcut.key &&
-          ctrlMatch &&
-          altMatch &&
-          shiftMatch
-          //   metaMatch
+          event.key.toLowerCase() === key &&
+          event.ctrlKey === ctrlReq &&
+          event.altKey === altReq &&
+          event.shiftKey === shiftReq &&
+          event.metaKey === metaReq
         ) {
           event.preventDefault();
-
-          const action = shortcut.action;
           console.log(`Hotkey triggered: ${action}`);
           if (action in hotkeyFunctions) {
             const actionFunction =

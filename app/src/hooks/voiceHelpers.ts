@@ -34,13 +34,27 @@ export const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 // ─── Setters for module-level state ───
-export function setWs(v: WebSocket | null) { ws = v; }
-export function setLocalStream(v: MediaStream | null) { localStream = v; }
-export function setDisplayStream(v: MediaStream | null) { displayStream = v; }
-export function setLocalUserId(v: string) { localUserId = v; }
-export function setCurrentChannelId(v: string | null) { currentChannelId = v; }
-export function setIsMutedLocal(v: boolean) { isMutedLocal = v; }
-export function setIsDeafenedLocal(v: boolean) { isDeafenedLocal = v; }
+export function setWs(v: WebSocket | null) {
+  ws = v;
+}
+export function setLocalStream(v: MediaStream | null) {
+  localStream = v;
+}
+export function setDisplayStream(v: MediaStream | null) {
+  displayStream = v;
+}
+export function setLocalUserId(v: string) {
+  localUserId = v;
+}
+export function setCurrentChannelId(v: string | null) {
+  currentChannelId = v;
+}
+export function setIsMutedLocal(v: boolean) {
+  isMutedLocal = v;
+}
+export function setIsDeafenedLocal(v: boolean) {
+  isDeafenedLocal = v;
+}
 
 // ─── Helper: play toggle sound ───
 export function playToggleSound(on: boolean) {
@@ -351,7 +365,10 @@ export function createPeerConnection(
 
   // Retry pending negotiations when signaling returns to stable
   pc.onsignalingstatechange = () => {
-    if (pc!.signalingState === "stable" && pendingNegotiation.has(remoteUserId)) {
+    if (
+      pc!.signalingState === "stable" &&
+      pendingNegotiation.has(remoteUserId)
+    ) {
       pendingNegotiation.delete(remoteUserId);
       setTimeout(() => negotiateWith(remoteUserId), 50);
     }
@@ -418,4 +435,81 @@ export function cleanupAll() {
   }
 
   currentChannelId = null;
+}
+
+// ─── Shared: toggle mute ───
+export function toggleMute() {
+  const wasMuted = isMutedLocal;
+  const newMuted = !wasMuted;
+  setIsMutedLocal(newMuted);
+  useStore.getState().setMuted(newMuted);
+  playToggleSound(newMuted);
+  localStream?.getAudioTracks().forEach((t) => {
+    t.enabled = !newMuted;
+  });
+  if (newMuted) {
+    broadcastTalkingState(false);
+    stopVAD();
+  } else if (
+    useStore.getState().voiceSettings.mode === "activity" &&
+    localStream
+  ) {
+    startVAD(localStream);
+  }
+
+  if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
+    ws.send(
+      JSON.stringify({
+        type: "voice_status_update",
+        channel_id: currentChannelId,
+        user_id: localUserId,
+        is_muted: newMuted,
+        is_deafened: isDeafenedLocal,
+      }),
+    );
+  }
+}
+
+// ─── Shared: toggle deafen ───
+export function toggleDeafen() {
+  const wasDeafened = isDeafenedLocal;
+  const newDeafened = !wasDeafened;
+  setIsDeafenedLocal(newDeafened);
+  useStore.getState().setDeafened(newDeafened);
+  playToggleSound(newDeafened);
+  audioElements.forEach((audio) => {
+    audio.muted = newDeafened;
+  });
+  // Also mute mic when deafened
+  if (newDeafened && !isMutedLocal) {
+    setIsMutedLocal(true);
+    useStore.getState().setMuted(true);
+    localStream?.getAudioTracks().forEach((t) => {
+      t.enabled = false;
+    });
+    broadcastTalkingState(false);
+    stopVAD();
+  } else if (!newDeafened && isMutedLocal) {
+    // Un-deafen also un-mutes
+    setIsMutedLocal(false);
+    useStore.getState().setMuted(false);
+    localStream?.getAudioTracks().forEach((t) => {
+      t.enabled = true;
+    });
+    if (useStore.getState().voiceSettings.mode === "activity" && localStream) {
+      startVAD(localStream);
+    }
+  }
+
+  if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
+    ws.send(
+      JSON.stringify({
+        type: "voice_status_update",
+        channel_id: currentChannelId,
+        user_id: localUserId,
+        is_muted: isMutedLocal,
+        is_deafened: newDeafened,
+      }),
+    );
+  }
 }

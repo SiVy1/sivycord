@@ -78,6 +78,7 @@ bitflags::bitflags! {
         const MOVE_MEMBERS       = 1 << 22; // 4194304
         const USE_VOICE_ACTIVITY = 1 << 23; // 8388608
         const PRIORITY_SPEAKER   = 1 << 24; // 16777216
+        const MODERATE_MEMBERS   = 1 << 25; // 33554432
         
         // Advanced
         const ADMINISTRATOR      = 1 << 30; // 1073741824
@@ -106,6 +107,7 @@ impl Permissions {
             | Self::VIDEO
             | Self::MUTE_MEMBERS
             | Self::USE_VOICE_ACTIVITY
+            | Self::MODERATE_MEMBERS
     }
     
     pub fn default_member() -> Self {

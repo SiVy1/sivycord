@@ -343,7 +343,7 @@ async fn handle_socket(
                         }
 
                         // Check permission
-                        if !user_has_permission(&state, &user_id, Permissions::KICK_MEMBERS).await.unwrap_or(false) {
+                        if !user_has_permission(&state, &user_id, Permissions::MODERATE_MEMBERS).await.unwrap_or(false) {
                             let _ = client_tx.send(WsServerMessage::Error {
                                 message: "Insufficient permissions to timeout users".to_string(),
                             }).await;

@@ -11,6 +11,18 @@ import type {
   Role,
 } from "./types";
 
+interface ShortcutMap {
+  [action: string]: string;
+}
+
+export const DEFAULT_SHORTCUTS: ShortcutMap = {
+  toggle_mute: "Control+Shift+M",
+  toggle_deafen: "Control+Shift+D",
+  prev_channel: "Alt+ArrowUp",
+  next_channel: "Alt+ArrowDown",
+  close_modal: "Escape",
+};
+
 interface AppState {
   // User identity
   displayName: string;
@@ -115,6 +127,11 @@ interface AppState {
   // Timeout
   timeoutFinishTime: number | null;
   setTimeoutFinishTime: (time: number | null) => void;
+
+  // Shortcuts
+  shortcuts: ShortcutMap;
+  setShortcut: (action: string, keyCombo: string) => void;
+  resetShortcuts: () => void;
 
   logout: () => void;
 }
@@ -507,6 +524,12 @@ export const useStore = create<AppState>()(
         set({ p2pVoiceActive: false });
       },
 
+      // Shortcuts
+      shortcuts: DEFAULT_SHORTCUTS,
+      setShortcut: (action, keyCombo) =>
+        set((s) => ({ shortcuts: { ...s.shortcuts, [action]: keyCombo } })),
+      resetShortcuts: () => set({ shortcuts: DEFAULT_SHORTCUTS }),
+
       // Timeout
       timeoutFinishTime: null,
       setTimeoutFinishTime: (time) => set({ timeoutFinishTime: time }),
@@ -575,6 +598,7 @@ export const useStore = create<AppState>()(
         voiceSettings: state.voiceSettings,
         soundSettings: state.soundSettings,
         timeoutFinishTime: state.timeoutFinishTime,
+        shortcuts: state.shortcuts,
       }),
     },
   ),

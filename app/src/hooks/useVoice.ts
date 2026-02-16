@@ -3,13 +3,29 @@ import { useStore } from "../store";
 import { type WsServerMessage, getWsUrl } from "../types";
 import { setTalkingDirect } from "./talkingStore";
 import {
-  ws, localStream, displayStream, localUserId, currentChannelId,
-  peerConnections, makingOffer, audioElements, screenTrackSenders,
-  isMutedLocal, isDeafenedLocal,
-  setWs, setLocalStream, setDisplayStream, setLocalUserId, setCurrentChannelId,
-  setIsMutedLocal, setIsDeafenedLocal,
-  playToggleSound, playVoiceSound, broadcastTalkingState,
-  startVAD, stopVAD, createPeerConnection, cleanupAll, negotiateWith,
+  ws,
+  localStream,
+  displayStream,
+  localUserId,
+  currentChannelId,
+  peerConnections,
+  makingOffer,
+  audioElements,
+  screenTrackSenders,
+  setWs,
+  setLocalStream,
+  setDisplayStream,
+  setLocalUserId,
+  setCurrentChannelId,
+  playVoiceSound,
+  broadcastTalkingState,
+  startVAD,
+  stopVAD,
+  createPeerConnection,
+  cleanupAll,
+  negotiateWith,
+  toggleMute as toggleMuteHelper,
+  toggleDeafen as toggleDeafenHelper,
 } from "./voiceHelpers";
 
 let p2pVoicePollInterval: ReturnType<typeof setInterval> | null = null;
@@ -123,9 +139,14 @@ export function useVoice() {
           // Poll voice peers periodically
           const pollPeers = async () => {
             try {
-              const peers = await invoke<{ node_id: string; channel_id: string; display_name: string; joined_at: string }[]>(
-                "moq_list_voice_peers", { docId, channelId }
-              );
+              const peers = await invoke<
+                {
+                  node_id: string;
+                  channel_id: string;
+                  display_name: string;
+                  joined_at: string;
+                }[]
+              >("moq_list_voice_peers", { docId, channelId });
               const members = peers.map((p) => ({
                 user_id: p.node_id,
                 user_name: p.display_name || p.node_id.substring(0, 8),
@@ -468,7 +489,10 @@ export function useVoice() {
       const docId = activeServer.config.p2p?.namespaceId;
       if (docId && currentChannelId) {
         import("@tauri-apps/api/core").then(({ invoke }) => {
-          invoke("moq_leave_voice", { docId, channelId: currentChannelId }).catch(() => {});
+          invoke("moq_leave_voice", {
+            docId,
+            channelId: currentChannelId,
+          }).catch(() => {});
         });
       }
       useStore.getState().stopP2PVoice();
@@ -483,81 +507,11 @@ export function useVoice() {
   }, [setVoiceChannel, setVoiceMembers]);
 
   const toggleMute = useCallback(() => {
-    const wasMuted = isMutedLocal;
-    const newMuted = !wasMuted;
-    setIsMutedLocal(newMuted);
-    useStore.getState().setMuted(newMuted);
-    playToggleSound(newMuted);
-    localStream?.getAudioTracks().forEach((t) => {
-      t.enabled = !newMuted;
-    });
-    if (newMuted) {
-      broadcastTalkingState(false);
-      stopVAD();
-    } else if (
-      useStore.getState().voiceSettings.mode === "activity" &&
-      localStream
-    ) {
-      startVAD(localStream);
-    }
-
-    if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
-      ws.send(
-        JSON.stringify({
-          type: "voice_status_update",
-          channel_id: currentChannelId,
-          user_id: localUserId,
-          is_muted: newMuted,
-          is_deafened: isDeafenedLocal,
-        }),
-      );
-    }
+    toggleMuteHelper();
   }, []);
 
   const toggleDeafen = useCallback(() => {
-    const wasDeafened = isDeafenedLocal;
-    const newDeafened = !wasDeafened;
-    setIsDeafenedLocal(newDeafened);
-    useStore.getState().setDeafened(newDeafened);
-    playToggleSound(newDeafened);
-    audioElements.forEach((audio) => {
-      audio.muted = newDeafened;
-    });
-    // Also mute mic when deafened
-    if (newDeafened && !isMutedLocal) {
-      setIsMutedLocal(true);
-      useStore.getState().setMuted(true);
-      localStream?.getAudioTracks().forEach((t) => {
-        t.enabled = false;
-      });
-      broadcastTalkingState(false);
-      stopVAD();
-    } else if (!newDeafened && isMutedLocal) {
-      // Un-deafen also un-mutes
-      setIsMutedLocal(false);
-      useStore.getState().setMuted(false);
-      localStream?.getAudioTracks().forEach((t) => {
-        t.enabled = true;
-      });
-      if (
-        useStore.getState().voiceSettings.mode === "activity" &&
-        localStream
-      ) {
-        startVAD(localStream);
-      }
-    }
-
-    if (ws?.readyState === WebSocket.OPEN && currentChannelId) {
-      ws.send(
-        JSON.stringify({
-          type: "voice_status_update",
-          channel_id: currentChannelId,
-          user_id: localUserId,
-          is_muted: isMutedLocal,
-          is_deafened: newDeafened,
-        }),
-      );
-    }
+    toggleDeafenHelper();
   }, []);
 
   const isMuted = useStore((s) => s.isMuted);

@@ -205,6 +205,13 @@ export const PERMISSION_DEFS: PermissionDef[] = [
     description: "Others' volume is lowered when you speak",
     category: "voice",
   },
+  {
+    key: "MODERATE_MEMBERS",
+    value: 1 << 25,
+    label: "Moderate Members",
+    description: "Timeout members to prevent them from chatting",
+    category: "voice",
+  },
   // ── Advanced ──
   {
     key: "ADMINISTRATOR",
@@ -287,6 +294,7 @@ export const PERMISSION_PRESETS = {
       "VIDEO",
       "MUTE_MEMBERS",
       "USE_VOICE_ACTIVITY",
+      "MODERATE_MEMBERS",
     ].includes(d.key),
   ).reduce((acc, d) => acc | d.value, 0),
 
