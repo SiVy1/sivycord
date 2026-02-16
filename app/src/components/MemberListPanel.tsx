@@ -28,11 +28,14 @@ function membersEqual(a: MemberInfo[], b: MemberInfo[]): boolean {
 export function MemberListPanel({ visible }: MemberListPanelProps) {
   const activeServerId = useStore((s) => s.activeServerId);
   const servers = useStore((s) => s.servers);
+  const openUserProfile = useStore((s) => s.openUserProfile);
   const [members, setMembers] = useState<MemberInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const membersRef = useRef<MemberInfo[]>([]);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
+
+  // ... (fetching logic remains same)
 
   // Legacy server member fetching
   const fetchLegacyMembers = useCallback(async () => {
@@ -155,6 +158,7 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
             label={`Online — ${onlineHumans.length}`}
             members={onlineHumans}
             server={activeServer}
+            onUserClick={openUserProfile}
           />
         )}
 
@@ -164,6 +168,7 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
             label={`Bots — ${bots.length}`}
             members={bots}
             server={activeServer}
+            onUserClick={openUserProfile}
           />
         )}
 
@@ -174,6 +179,7 @@ export function MemberListPanel({ visible }: MemberListPanelProps) {
             members={offlineHumans}
             server={activeServer}
             dimmed
+            onUserClick={openUserProfile}
           />
         )}
       </div>
@@ -186,11 +192,13 @@ const MemberGroup = memo(function MemberGroup({
   members,
   server,
   dimmed,
+  onUserClick,
 }: {
   label: string;
   members: MemberInfo[];
   server: ReturnType<typeof useStore.getState>["servers"][number] | undefined;
   dimmed?: boolean;
+  onUserClick: (userId: string) => void;
 }) {
   return (
     <div>
@@ -204,6 +212,7 @@ const MemberGroup = memo(function MemberGroup({
             member={m}
             server={server}
             dimmed={dimmed}
+            onClick={() => onUserClick(m.user_id)}
           />
         ))}
       </div>
@@ -215,10 +224,12 @@ const MemberItem = memo(function MemberItem({
   member,
   server,
   dimmed,
+  onClick,
 }: {
   member: MemberInfo;
   server: ReturnType<typeof useStore.getState>["servers"][number] | undefined;
   dimmed?: boolean;
+  onClick: () => void;
 }) {
   const apiUrl =
     server?.type === "legacy" && server.config.host && server.config.port
@@ -233,7 +244,8 @@ const MemberItem = memo(function MemberItem({
 
   return (
     <div
-      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-bg-surface/60 transition-colors ${dimmed ? "opacity-40" : ""}`}
+      onClick={onClick}
+      className={`flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-bg-surface/60 transition-colors cursor-pointer ${dimmed ? "opacity-40" : ""}`}
     >
       {/* Avatar */}
       <div className="relative flex-shrink-0">

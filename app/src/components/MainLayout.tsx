@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { ChatArea } from "./ChatArea.tsx";
 import { MemberListPanel } from "./MemberListPanel.tsx";
+import { UserProfileModal } from "./modals/UserProfileModal.tsx";
 import { useStore } from "../store";
 import { type ChatEntry, getApiUrl } from "../types";
 import { useHotkey } from "../hooks/useHotkey.ts";
@@ -136,6 +137,7 @@ export function MainLayout() {
         onToggleMembers={() => setShowMembers((v) => !v)}
       />
       <MemberListPanel visible={showMembers} />
+      <UserProfileModal />
     </div>
   );
 }

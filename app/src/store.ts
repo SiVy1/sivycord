@@ -133,6 +133,11 @@ interface AppState {
   setShortcut: (action: string, keyCombo: string) => void;
   resetShortcuts: () => void;
 
+  // User Profile Modal
+  userProfileModal: { userId: string | null; isOpen: boolean };
+  openUserProfile: (userId: string) => void;
+  closeUserProfile: () => void;
+
   logout: () => void;
 }
 
@@ -533,6 +538,13 @@ export const useStore = create<AppState>()(
       // Timeout
       timeoutFinishTime: null,
       setTimeoutFinishTime: (time) => set({ timeoutFinishTime: time }),
+
+      // User Profile Modal
+      userProfileModal: { userId: null, isOpen: false },
+      openUserProfile: (userId) =>
+        set({ userProfileModal: { userId, isOpen: true } }),
+      closeUserProfile: () =>
+        set({ userProfileModal: { userId: null, isOpen: false } }),
 
       logout: () =>
         set((s) => {
