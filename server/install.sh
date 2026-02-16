@@ -13,7 +13,6 @@ PORT="${PORT:-3000}"
 EXTERNAL_HOST="${EXTERNAL_HOST:-localhost}"
 EXTERNAL_PORT="${EXTERNAL_PORT:-}"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
@@ -117,8 +116,15 @@ ${EXTERNAL_PORT:+EXTERNAL_PORT=${EXTERNAL_PORT}}
 EOF
     chmod 600 "$ENV_FILE"
     chown "$SERVICE_USER":"$SERVICE_USER" "$ENV_FILE"
+    chmod 600 "$ENV_FILE"
+    chown "$SERVICE_USER":"$SERVICE_USER" "$ENV_FILE"
 else
-    warn "$ENV_FILE already exists — not overwriting."
+    warn "$ENV_FILE already exists."
+    # Update PORT if it's different
+    if grep -q "PORT=" "$ENV_FILE"; then
+        info "Updating PORT to $PORT in $ENV_FILE..."
+        sed -i "s/^PORT=.*/PORT=$PORT/" "$ENV_FILE"
+    fi
 fi
 
 # ── Systemd service ─────────────────────────────────
