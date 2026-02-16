@@ -2,32 +2,21 @@ import { useState, useEffect } from "react";
 import { useStore } from "../store";
 import type { Role } from "../types";
 import { PERMISSIONS, hasPermission, getApiUrl } from "../types";
+import { AdminSidebar } from "./admin/Sidebar"; // New import
 import { RolesTab } from "./admin/RolesTab";
 import { UsersTab } from "./admin/UsersTab";
 import { ServerTab } from "./admin/ServerTab";
 import { InvitesTab, AuditLogsTab } from "./admin/InvitesTab";
 import { BotsTab } from "./admin/BotsTab";
 import { FederationTab } from "./admin/FederationTab";
-import {
-  X,
-  Shield,
-  UserCog,
-  Users,
-  Settings,
-  Mail,
-  ClipboardList,
-  Bot,
-  Globe,
-} from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 
 interface AdminPanelProps {
   onClose: () => void;
 }
 
 export function AdminPanel({ onClose }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<
-    "roles" | "users" | "server" | "audit" | "invites" | "bots" | "federation"
-  >("roles");
+  const [activeTab, setActiveTab] = useState<string>("overview"); // Changed default to generic string
   const servers = useStore((s) => s.servers);
   const activeServerId = useStore((s) => s.activeServerId);
   const currentUser = useStore((s) => s.currentUser);
@@ -49,7 +38,6 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
     const { host, port } = activeServer.config;
     if (!host || !port) return;
 
-    // Fetch user's roles
     const guildId = activeServer.config.guildId || "default";
     fetch(`${getApiUrl(host, port)}/api/users/${currentUser.id}/roles`, {
       headers: { "X-Server-Id": guildId },
@@ -62,42 +50,32 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
       .catch(console.error);
   }, [currentUser, activeServer]);
 
+  // Handle ESC key
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
   if (!activeServer || (activeServer.type === "legacy" && !currentUser)) {
-    return (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-        <div className="bg-bg-primary rounded-3xl shadow-2xl p-6 max-w-md w-full mx-4">
-          <h2 className="text-xl font-bold text-text-primary mb-4">
-            Not Connected
-          </h2>
-          <p className="text-text-secondary mb-6">
-            You need to be logged in to access the admin panel.
-          </p>
-          <button
-            onClick={onClose}
-            className="w-full py-3 bg-accent text-white rounded-xl font-bold hover:bg-accent/90"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    );
+    return null; // Or a simpler loading state, main layout handles global auth checks usually
   }
 
   if (!isAdmin) {
     return (
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-        <div className="bg-bg-primary rounded-3xl shadow-2xl p-6 max-w-md w-full mx-4">
-          <h2 className="text-xl font-bold text-danger mb-4">Access Denied</h2>
-          <p className="text-text-secondary mb-6">
-            You don't have permission to access the admin panel.
-            <br />
-            Required: MANAGE_ROLES permission
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-in fade-in duration-200">
+        <div className="bg-bg-primary rounded-3xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center border border-danger/20">
+          <h2 className="text-2xl font-bold text-danger mb-2">Access Denied</h2>
+          <p className="text-text-muted mb-6">
+            You lack the permissions to view this panel.
           </p>
           <button
             onClick={onClose}
-            className="w-full py-3 bg-accent text-white rounded-xl font-bold hover:bg-accent/90"
+            className="px-6 py-2 bg-bg-surface hover:bg-bg-hover text-text-primary rounded-lg font-medium transition-colors border border-border"
           >
-            Close
+            Return
           </button>
         </div>
       </div>
@@ -105,123 +83,58 @@ export function AdminPanel({ onClose }: AdminPanelProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-bg-primary rounded-3xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-border/50">
-          <div>
-            <h2 className="text-2xl font-bold text-text-primary flex items-center gap-2">
-              <Shield className="w-6 h-6 text-accent" />
-              Admin Panel
-            </h2>
-            <p className="text-sm text-text-muted mt-1">
-              Manage server settings, roles, and users
-            </p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-10 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-6xl h-full md:h-[85vh] bg-bg-primary rounded-none md:rounded-2xl shadow-2xl flex overflow-hidden border border-border/20">
+        {/* Sidebar Navigation */}
+        <AdminSidebar
+          server={activeServer}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onClose={onClose}
+        />
+
+        {/* Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 bg-bg-primary">
+          <div className="flex-1 overflow-y-auto w-full p-8 md:p-12">
+            <div className="max-w-4xl mx-auto">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={activeTab}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.15 }}
+                >
+                  {/* Tab Content Mapping */}
+                  {activeTab === "overview" && (
+                    <ServerTab server={activeServer} />
+                  )}
+                  {activeTab === "roles" && <RolesTab server={activeServer} />}
+                  {activeTab === "users" && <UsersTab server={activeServer} />}
+                  {activeTab === "invites" && (
+                    <InvitesTab server={activeServer} />
+                  )}
+                  {activeTab === "audit" && (
+                    <AuditLogsTab server={activeServer} />
+                  )}
+                  {activeTab === "bots" && <BotsTab server={activeServer} />}
+                  {activeTab === "federation" && (
+                    <FederationTab server={activeServer} />
+                  )}
+
+                  {/* Fallback for disabled/placeholder tabs */}
+                  {["emojis", "bans"].includes(activeTab) && (
+                    <div className="flex flex-col items-center justify-center h-64 text-text-muted border-2 border-dashed border-border/30 rounded-xl">
+                      <p className="text-lg font-medium">Coming Soon</p>
+                      <p className="text-sm">
+                        This feature is not yet implemented.
+                      </p>
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-bg-hover rounded-xl transition-colors text-text-muted hover:text-text-primary"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-2 px-6 pt-4 border-b border-border/30 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab("roles")}
-            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
-              activeTab === "roles"
-                ? "bg-bg-surface text-accent border-b-2 border-accent"
-                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
-            }`}
-          >
-            <UserCog className="w-4 h-4" />
-            Roles
-          </button>
-          <button
-            onClick={() => setActiveTab("users")}
-            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
-              activeTab === "users"
-                ? "bg-bg-surface text-accent border-b-2 border-accent"
-                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Users
-          </button>
-          <button
-            onClick={() => setActiveTab("server")}
-            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
-              activeTab === "server"
-                ? "bg-bg-surface text-accent border-b-2 border-accent"
-                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-            Server
-          </button>
-          <button
-            onClick={() => setActiveTab("invites")}
-            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
-              activeTab === "invites"
-                ? "bg-bg-surface text-accent border-b-2 border-accent"
-                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
-            }`}
-          >
-            <Mail className="w-4 h-4" />
-            Invites
-          </button>
-          <button
-            onClick={() => setActiveTab("audit")}
-            className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
-              activeTab === "audit"
-                ? "bg-bg-surface text-accent border-b-2 border-accent"
-                : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
-            }`}
-          >
-            <ClipboardList className="w-4 h-4" />
-            Audit Logs
-          </button>
-          {activeServer.type === "legacy" && (
-            <button
-              onClick={() => setActiveTab("bots")}
-              className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
-                activeTab === "bots"
-                  ? "bg-bg-surface text-accent border-b-2 border-accent"
-                  : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
-              }`}
-            >
-              <Bot className="w-4 h-4" />
-              Bots
-            </button>
-          )}
-          {activeServer.type === "legacy" && (
-            <button
-              onClick={() => setActiveTab("federation")}
-              className={`px-4 py-3 text-sm font-bold rounded-t-xl transition-all flex items-center gap-2 flex-shrink-0 ${
-                activeTab === "federation"
-                  ? "bg-bg-surface text-accent border-b-2 border-accent"
-                  : "text-text-muted hover:text-text-secondary hover:bg-bg-hover/50"
-              }`}
-            >
-              <Globe className="w-4 h-4" />
-              Federation
-            </button>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === "roles" && <RolesTab server={activeServer} />}
-          {activeTab === "users" && <UsersTab server={activeServer} />}
-          {activeTab === "server" && <ServerTab server={activeServer} />}
-          {activeTab === "invites" && <InvitesTab server={activeServer} />}
-          {activeTab === "audit" && <AuditLogsTab server={activeServer} />}
-          {activeTab === "bots" && <BotsTab server={activeServer} />}
-          {activeTab === "federation" && (
-            <FederationTab server={activeServer} />
-          )}
         </div>
       </div>
     </div>
