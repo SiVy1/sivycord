@@ -4,8 +4,8 @@ import { type ServerEntry, type Message } from "../../types";
 import { useStore } from "../../store";
 import { ChatReplyPreview } from "./input/ChatReplyPreview";
 import { ChatTypingIndicators } from "./input/ChatTypingIndicators";
-import { ChatFileUpload } from "./input/ChatFileUpload";
-import { Clock, Smile, SendHorizontal } from "lucide-react";
+
+import { Clock, ArrowUp, Plus, AtSign, Braces } from "lucide-react";
 
 const MAX_MESSAGE_LENGTH = 2000;
 
@@ -104,14 +104,8 @@ export function ChatInput({
         </div>
       )}
 
-      <div className="bg-bg-secondary border border-border/50 rounded-2xl flex items-end shadow-lg focus-within:border-accent/50 focus-within:ring-4 focus-within:ring-accent/5 transition-all">
-        <ChatFileUpload
-          isAuthenticated={isAuthenticated}
-          isConnected={wsStatus === "connected"}
-          uploading={uploading}
-          onUploadFile={onUploadFile}
-        />
-
+      <div className="bg-bg-primary/50 border border-border/30 hover:border-border/50 focus-within:border-accent/50 focus-within:ring-1 focus-within:ring-accent/50 rounded-xl transition-all mx-2 flex flex-col">
+        {/* Top: Text Input */}
         <textarea
           value={input}
           onChange={(e) => {
@@ -145,7 +139,7 @@ export function ChatInput({
                   ? "Reconnecting..."
                   : isTimedOut
                     ? `You are timed out for ${Math.ceil((timeoutFinishTime! - now) / 1000)}s`
-                    : `Message #${activeChannel?.name || "channel"}`
+                    : `Message #${activeChannel?.name || "channel"}...`
           }
           disabled={
             isTimedOut ||
@@ -153,38 +147,71 @@ export function ChatInput({
               (wsStatus !== "connected" || !isAuthenticated))
           }
           rows={1}
-          className="flex-1 bg-transparent resize-none px-4 py-3.5 text-sm text-text-primary placeholder:text-text-muted outline-none disabled:opacity-50"
+          className="w-full bg-transparent resize-none px-4 py-3 text-sm text-text-primary placeholder:text-text-muted/40 outline-none disabled:opacity-50 min-h-[44px] max-h-[300px]"
         />
-        {/* Emoji button */}
-        {isAuthenticated && (
-          <button
-            onClick={() => setShowEmoji(!showEmoji)}
-            className={`p-3 transition-colors cursor-pointer ${
-              showEmoji ? "text-accent" : "text-text-muted hover:text-accent"
-            }`}
-            disabled={wsStatus !== "connected"}
-            title="Emoji"
-          >
-            <Smile className="w-5 h-5" />
-          </button>
-        )}
-        <button
-          onClick={() => onSend(input)}
-          disabled={
-            !input.trim() || wsStatus !== "connected" || !isAuthenticated
-          }
-          className="p-3 text-accent disabled:text-text-muted hover:scale-110 active:scale-95 transition-all cursor-pointer"
-        >
-          <SendHorizontal className="w-6 h-6" />
-        </button>
+
+        {/* Bottom: Toolbar */}
+        <div className="flex items-center justify-between px-2 pb-2">
+          {/* Left Actions */}
+          <div className="flex items-center gap-1">
+            <button
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+              onClick={() => document.getElementById("file-upload")?.click()}
+              title="Upload File"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+            {/* Hidden File Upload Input */}
+            <input
+              type="file"
+              id="file-upload"
+              className="hidden"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  onUploadFile(e.target.files[0]);
+                }
+              }}
+              disabled={!isAuthenticated || !activeChannelId || uploading}
+            />
+
+            <button
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+              onClick={() => setInput(input + "@")}
+              title="Mention User"
+            >
+              <AtSign className="w-5 h-5" />
+            </button>
+            <button
+              className="p-1.5 text-text-muted hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+              onClick={() => setInput(input + "```\n\n```")}
+              title="Code Block"
+            >
+              <Braces className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Right Actions */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => onSend(input)}
+              disabled={
+                !input.trim() || wsStatus !== "connected" || !isAuthenticated
+              }
+              className="p-2 rounded-lg bg-bg-tertiary text-text-primary disabled:text-text-muted disabled:bg-transparent hover:bg-accent hover:text-white transition-all cursor-pointer"
+            >
+              <ArrowUp className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
       </div>
+
       {uploading && (
-        <div className="text-[10px] text-accent mt-1 animate-pulse">
+        <div className="text-[10px] text-accent mt-1 animate-pulse px-2">
           Uploading file...
         </div>
       )}
       {input.length > MAX_MESSAGE_LENGTH - 100 && (
-        <div className="text-[10px] text-text-muted text-right mt-1">
+        <div className="text-[10px] text-text-muted text-right mt-1 px-2">
           {input.length}/{MAX_MESSAGE_LENGTH}
         </div>
       )}

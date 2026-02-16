@@ -1,4 +1,4 @@
-import { useEffect, useState, memo } from "react";
+import { useEffect, useState, memo, useRef } from "react";
 import { useStore } from "../store";
 import { VoiceStatusPanel } from "./VoiceStatusBar";
 import { useVoice } from "../hooks/useVoice";
@@ -7,6 +7,7 @@ import { UserSettingsModal } from "./UserSettingsModal";
 import { AdminPanel } from "./AdminPanel";
 import { CreateChannelModal } from "./CreateChannelModal";
 import { P2PInviteModal } from "./P2PInviteModal";
+import { AddServerModal } from "./AddServerModal";
 import { type Channel, type P2PChannel, getApiUrl } from "../types";
 import {
   MicOff,
@@ -17,7 +18,12 @@ import {
   Volume2,
   Settings,
   ShieldAlert,
+  ChevronDown,
+  X,
+  LogOut,
+  Check,
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 
 interface VoiceMember {
   user_id: string;
@@ -80,16 +86,22 @@ export function ChannelSidebar() {
   const activeChannelId = useStore((s) => s.activeChannelId);
   const setChannels = useStore((s) => s.setChannels);
   const setActiveChannel = useStore((s) => s.setActiveChannel);
+  const setActiveServer = useStore((s) => s.setActiveServer);
   const voiceChannelId = useStore((s) => s.voiceChannelId);
   const voiceMembers = useStore((s) => s.voiceMembers);
   const currentUser = useStore((s) => s.currentUser);
   const screenShares = useStore((s) => s.screenShares);
   const displayName = useStore((s) => s.displayName);
   const { joinVoice, leaveVoice } = useVoice();
+
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showServerDropdown, setShowServerDropdown] = useState(false);
+  const [showAddServer, setShowAddServer] = useState(false);
+
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
 
@@ -97,6 +109,20 @@ export function ChannelSidebar() {
     (c) => c.channel_type === "text" || !c.channel_type,
   );
   const voiceChannels = channels.filter((c) => c.channel_type === "voice");
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setShowServerDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const fetchChannels = async () => {
     if (!activeServer) return;
@@ -175,7 +201,7 @@ export function ChannelSidebar() {
   }, [activeServer?.id]);
 
   return (
-    <div className="w-64 min-w-64 bg-bg-secondary border-r border-border flex flex-col">
+    <div className="w-64 min-w-64 bg-bg-secondary border-r border-border/50 flex flex-col relative z-20">
       {/* Invite Modal */}
       {showInvite &&
         activeServer?.type === "p2p" &&
@@ -186,43 +212,128 @@ export function ChannelSidebar() {
             onClose={() => setShowInvite(false)}
           />
         )}
-      {/* Server header */}
-      <div className="h-14 flex items-center px-4 border-b border-border/50 justify-between bg-bg-secondary/80 backdrop-blur-md sticky top-0 z-10">
-        <h2 className="text-sm font-bold text-text-primary truncate tracking-tight">
-          {activeServer?.type === "p2p"
-            ? "P2P Space"
-            : activeServer?.config.serverName ||
-              activeServer?.config.host ||
-              "Server"}
-        </h2>
-        <div className="flex items-center gap-1">
-          {/* Copy Invite (P2P owner only) */}
-          {activeServer?.type === "p2p" && activeServer.config.p2p?.isOwner && (
-            <button
-              onClick={() => setShowInvite(true)}
-              className="p-1.5 rounded-lg text-text-muted hover:text-accent hover:bg-bg-surface transition-all cursor-pointer"
-              title="Copy Invite"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
-          )}
-          {/* Create Channel */}
-          {activeServer?.type !== "p2p" && (
-            <button
-              onClick={() => setShowCreate(true)}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-surface transition-all cursor-pointer"
-              title="Create channel"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
+      {/* Server Header Dropdown */}
+      <div ref={dropdownRef} className="relative">
+        <div
+          onClick={() => setShowServerDropdown(!showServerDropdown)}
+          className={`h-12 flex items-center px-4 border-b border-border/50 justify-between bg-bg-secondary shadow-sm transition-colors hover:bg-bg-tertiary cursor-pointer ${showServerDropdown ? "bg-bg-tertiary" : ""}`}
+        >
+          <h2 className="text-sm font-bold text-text-primary truncate tracking-tight">
+            {activeServer?.type === "p2p"
+              ? "P2P Space"
+              : activeServer?.config.serverName ||
+                activeServer?.config.host ||
+                "Select Server"}
+          </h2>
+          {showServerDropdown ? (
+            <X className="w-4 h-4 text-text-primary" />
+          ) : (
+            <ChevronDown className="w-4 h-4 text-text-primary" />
           )}
         </div>
+
+        <AnimatePresence>
+          {showServerDropdown && (
+            <motion.div
+              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.95 }}
+              transition={{ duration: 0.1 }}
+              className="absolute top-[52px] left-2 right-2 bg-black border border-border/50 rounded-xl shadow-xl overflow-hidden p-1 z-50"
+            >
+              {/* Server List */}
+              <div className="max-h-[300px] overflow-y-auto custom-scrollbar mb-1">
+                {servers.map((server) => (
+                  <button
+                    key={server.id}
+                    onClick={() => {
+                      setActiveServer(server.id);
+                      setShowServerDropdown(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium transition-colors ${activeServerId === server.id ? "bg-accent text-white" : "text-text-secondary hover:bg-bg-tertiary hover:text-text-primary"}`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${activeServerId === server.id ? "bg-white/20 text-white" : "bg-bg-tertiary text-text-muted"}`}
+                    >
+                      {server.initial}
+                    </div>
+                    <span className="truncate flex-1 text-left">
+                      {server.config.serverName || server.config.host}
+                    </span>
+                    {activeServerId === server.id && (
+                      <Check className="w-4 h-4 shrink-0" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              <div className="h-px bg-border/50 my-1 mx-2" />
+
+              {/* Actions */}
+              {activeServer && (
+                <>
+                  {activeServer.type === "p2p" &&
+                    activeServer.config.p2p?.isOwner && (
+                      <button
+                        onClick={() => {
+                          setShowInvite(true);
+                          setShowServerDropdown(false);
+                        }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-accent hover:bg-accent/10 transition-colors text-left"
+                      >
+                        <Copy className="w-4 h-4" />
+                        Invite People
+                      </button>
+                    )}
+                  {activeServer.type !== "p2p" && (
+                    <button
+                      onClick={() => {
+                        setShowCreate(true);
+                        setShowServerDropdown(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-tertiary transition-colors text-left"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Create Channel
+                    </button>
+                  )}
+
+                  <div className="h-px bg-border/50 my-1 mx-2" />
+                </>
+              )}
+
+              <button
+                onClick={() => {
+                  setShowAddServer(true);
+                  setShowServerDropdown(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-secondary hover:text-success hover:bg-success/10 transition-colors text-left"
+              >
+                <Plus className="w-4 h-4" />
+                Add Server
+              </button>
+
+              {activeServer && (
+                <button
+                  onClick={() => {
+                    // TODO: Implement leave server logic
+                    alert("Leave Server implementation coming soon");
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-danger hover:bg-danger/10 transition-colors text-left"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Leave Server
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
       {/* Channel list */}
-      <div className="flex-1 overflow-y-auto py-4 px-2.5 space-y-4">
+      <div className="flex-1 overflow-y-auto py-3 px-2 space-y-4 custom-scrollbar">
         {/* Text channels */}
         <div>
-          <div className="text-[10px] font-bold text-text-muted uppercase tracking-widest px-2 mb-2 flex items-center justify-between">
+          <div className="text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-2 mb-1 flex items-center justify-between group-hover:text-text-secondary transition-colors">
             <span>Text Channels</span>
           </div>
           <div className="space-y-0.5">
@@ -231,20 +342,20 @@ export function ChannelSidebar() {
                 key={channel.id}
                 onClick={() => setActiveChannel(channel.id)}
                 className={`
-                  w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-2.5 cursor-pointer
-                  transition-all duration-200 group
+                  w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
+                  transition-all duration-150 group
                   ${
                     activeChannelId === channel.id
-                      ? "bg-accent/10 text-accent font-semibold"
-                      : "text-text-secondary hover:bg-bg-surface hover:text-text-primary"
+                      ? "bg-bg-tertiary text-text-primary font-medium"
+                      : "text-text-muted hover:bg-bg-tertiary/50 hover:text-text-secondary"
                   }
                 `}
               >
                 <Hash
-                  className={`w-4 h-4 ${
+                  className={`w-4 h-4 shrink-0 ${
                     activeChannelId === channel.id
-                      ? "text-accent"
-                      : "text-text-muted group-hover:text-text-secondary"
+                      ? "text-text-secondary"
+                      : "text-text-muted/50 group-hover:text-text-muted"
                   }`}
                 />
                 <span className="truncate">{channel.name}</span>
@@ -256,68 +367,63 @@ export function ChannelSidebar() {
         {/* Voice channels */}
         {voiceChannels.length > 0 && (
           <>
-            <div className="text-[11px] font-semibold text-text-muted uppercase tracking-wider px-2 mb-1 mt-4">
+            <div className="text-[10px] font-bold text-text-muted/70 uppercase tracking-widest px-2 mb-1 mt-4">
               Voice Channels
             </div>
-            {voiceChannels.map((channel: Channel) => {
-              const isConnected = voiceChannelId === channel.id;
-              const voiceMembersInThisChannel = voiceMembers.filter(
-                (m) => m.channel_id === channel.id,
-              );
-              return (
-                <div key={channel.id}>
-                  <button
-                    onClick={() =>
-                      isConnected ? leaveVoice() : joinVoice(channel.id)
-                    }
-                    className={`
-                      w-full text-left px-3 py-2 rounded-xl text-sm flex items-center gap-2.5 cursor-pointer
-                      transition-all duration-200 group relative
+            <div className="space-y-0.5">
+              {voiceChannels.map((channel: Channel) => {
+                const isConnected = voiceChannelId === channel.id;
+                const voiceMembersInThisChannel = voiceMembers.filter(
+                  (m) => m.channel_id === channel.id,
+                );
+                return (
+                  <div key={channel.id}>
+                    <button
+                      onClick={() =>
+                        isConnected ? leaveVoice() : joinVoice(channel.id)
+                      }
+                      className={`
+                      w-full text-left px-2 py-1.5 rounded-md text-sm flex items-center gap-2 cursor-pointer
+                      transition-all duration-150 group relative
                       ${
                         isConnected
-                          ? "bg-accent/15 text-text-primary font-semibold shadow-sm"
-                          : "text-text-secondary hover:bg-bg-hover/60 hover:text-text-primary"
+                          ? "bg-bg-tertiary text-text-primary font-medium"
+                          : "text-text-muted hover:bg-bg-tertiary/50 hover:text-text-secondary"
                       }
                     `}
-                  >
-                    <div
-                      className={`p-1 rounded-lg ${
-                        isConnected
-                          ? "bg-accent/20 text-accent"
-                          : "bg-bg-surface text-text-muted group-hover:text-text-secondary"
-                      }`}
                     >
-                      <Volume2 className="w-4 h-4 shrink-0" />
-                    </div>
-                    <span className="truncate">{channel.name}</span>
-                    {isConnected && (
-                      <div className="ml-auto flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-success shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse" />
+                      <Volume2
+                        className={`w-4 h-4 shrink-0 ${
+                          isConnected
+                            ? "text-success"
+                            : "text-text-muted/50 group-hover:text-text-muted"
+                        }`}
+                      />
+                      <span className="truncate">{channel.name}</span>
+                    </button>
+
+                    {voiceMembersInThisChannel.length > 0 && (
+                      <div className="ml-6 mt-0.5 mb-1 space-y-0.5 border-l border-border/30 pl-2">
+                        {voiceMembersInThisChannel.map((m) => (
+                          <VoiceMemberRow
+                            key={m.user_id}
+                            member={m}
+                            hasScreenShare={screenShares.has(m.user_id)}
+                          />
+                        ))}
                       </div>
                     )}
-                  </button>
-
-                  {voiceMembersInThisChannel.length > 0 && (
-                    <div className="ml-10 mt-1 mb-2 space-y-1">
-                      {voiceMembersInThisChannel.map((m) => (
-                        <VoiceMemberRow
-                          key={m.user_id}
-                          member={m}
-                          hasScreenShare={screenShares.has(m.user_id)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                  </div>
+                );
+              })}
+            </div>
           </>
         )}
       </div>
       {/* Voice status bar */}
       <VoiceStatusPanel />
       {/* User footer */}
-      <div className="h-14 flex items-center px-3 border-t border-border gap-2 bg-bg-surface/50">
+      <div className="h-14 flex items-center px-3 border-t border-border/50 gap-2 bg-bg-secondary">
         {currentUser?.avatar_url ? (
           <img
             src={`${getApiUrl(activeServer?.config.host, activeServer?.config.port)}${currentUser.avatar_url}`}
@@ -333,7 +439,7 @@ export function ChannelSidebar() {
           <span className="text-xs text-text-primary truncate font-medium">
             {currentUser?.display_name || displayName}
           </span>
-          <span className="text-[10px] text-text-muted truncate">
+          <span className="text-xs text-text-muted truncate">
             {currentUser ? `@${currentUser.username}` : ""}
           </span>
         </div>{" "}
@@ -364,6 +470,10 @@ export function ChannelSidebar() {
           onClose={() => setShowCreate(false)}
           onCreated={fetchChannels}
         />
+      )}
+      {/* Add Server Modal */}
+      {showAddServer && (
+        <AddServerModal onClose={() => setShowAddServer(false)} />
       )}
     </div>
   );

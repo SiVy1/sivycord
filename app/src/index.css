@@ -1,20 +1,26 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-primary: #0b0e14;
-  --color-bg-secondary: #11141b;
-  --color-bg-tertiary: #161922;
-  --color-bg-surface: #1d212b;
-  --color-bg-hover: #262b38;
-  --color-bg-input: #080a0f;
+  /* Dark Minimalist / Terminal Theme */
+  --color-bg-primary: #0a0a0a; /* Main background - Neutral 950 */
+  --color-bg-secondary: #050505; /* Sidebar - Almost Black */
+  --color-bg-tertiary: #171717; /* Hover/Active - Neutral 900 */
+  --color-bg-surface: #171717; /* Cards/Modals - Neutral 900 */
+  --color-bg-hover: #262626; /* Hover state */
+  --color-bg-input: #0a0a0a; /* Inputs */
+
+  --color-accent: #3b82f6; /* Keeping blue for now, or user wants terminal green? Image had green dots but blue links/accents maybe? Let's stick to blue or switching to white/green? The prompt said "zmieniaj tylko style". Let's keep accent blue for now or make it neutral? NO, let's make it a nice muted blue or keep as is. Actually, let's shift accent to a slightly more "tech" blue. */
   --color-accent: #3b82f6;
   --color-accent-hover: #2563eb;
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #ced4da;
-  --color-text-muted: #64748b;
-  --color-border: rgba(206, 212, 218, 0.1);
-  --color-border-light: rgba(206, 212, 218, 0.2);
-  --color-success: #10b981;
+
+  --color-text-primary: #e5e5e5; /* Neutral 200 */
+  --color-text-secondary: #a3a3a3; /* Neutral 400 */
+  --color-text-muted: #525252; /* Neutral 600 */
+
+  --color-border: #262626; /* Subtle borders */
+  --color-border-light: #404040;
+
+  --color-success: #22c55e;
   --color-danger: #ef4444;
   --font-sans: "Inter", "Manrope", system-ui, -apple-system, sans-serif;
 }

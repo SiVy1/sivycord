@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { ServerSidebar } from "./ServerSidebar.tsx";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { ChatArea } from "./ChatArea.tsx";
 import { MemberListPanel } from "./MemberListPanel.tsx";
@@ -130,9 +129,6 @@ export function MainLayout() {
 
   return (
     <div className="h-full flex">
-      {/* Server icons sidebar */}
-      <ServerSidebar />
-
       {/* Channel list + chat area + member panel */}
       <ChannelSidebar />
       <ChatArea

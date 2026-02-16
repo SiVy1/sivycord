@@ -159,7 +159,6 @@ export function ChatArea({ showMembers, onToggleMembers }: ChatAreaProps = {}) {
         onToggleMembers={onToggleMembers}
         showPins={showPins}
         setShowPins={setShowPins}
-        wsStatus={wsStatus}
         e2eReady={e2eReady}
       />
 

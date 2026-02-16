@@ -17,49 +17,54 @@ export function ServerSidebar() {
           onClick={() => setActiveServer(null)}
           title="Back to servers"
           className={`
-            w-12 h-12 rounded-[18px] flex items-center justify-center
-            transition-all duration-300 ease-out cursor-pointer
-            bg-bg-surface text-text-secondary hover:bg-accent hover:text-white hover:rounded-[12px] hover:shadow-lg hover:shadow-accent/20
+            w-12 h-12 rounded-[16px] flex items-center justify-center
+            transition-all duration-200 ease-out cursor-pointer
+            bg-bg-tertiary text-text-secondary hover:bg-accent hover:text-white hover:rounded-[12px]
           `}
         >
           <ArrowLeft className="w-5 h-5" />
         </button>
 
-        <div className="w-8 h-px bg-border my-1" />
+        <div className="w-8 h-px bg-border/50 my-1" />
 
         {/* Server list */}
         {servers.map((server) => (
-          <button
+          <div
             key={server.id}
-            onClick={() => setActiveServer(server.id)}
-            title={server.config.serverName || server.config.host}
-            className={`
-              group relative w-12 h-12 rounded-[18px] flex items-center justify-center text-sm font-bold
-              transition-all duration-300 ease-out cursor-pointer
-              ${
-                activeServerId === server.id
-                  ? "bg-accent text-white rounded-[12px] shadow-lg shadow-accent/20"
-                  : "bg-bg-surface text-text-secondary hover:bg-accent hover:text-white hover:rounded-[12px] hover:shadow-lg hover:shadow-accent/20"
-              }
-            `}
+            className="relative group flex items-center justify-center w-full"
           >
-            {server.initial}
-
             {/* Active indicator */}
-            {activeServerId === server.id && (
-              <div className="absolute -left-3 w-1.5 h-10 bg-accent rounded-r-full shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
-            )}
-          </button>
+            <div
+              className={`absolute left-0 w-1 bg-white rounded-r-full transition-all duration-200 
+               ${activeServerId === server.id ? "h-8 opacity-100" : "h-2 opacity-0 group-hover:opacity-50 group-hover:h-4"}`}
+            />
+
+            <button
+              onClick={() => setActiveServer(server.id)}
+              title={server.config.serverName || server.config.host}
+              className={`
+                w-12 h-12 rounded-[16px] flex items-center justify-center text-sm font-bold
+                transition-all duration-200 ease-out cursor-pointer overflow-hidden
+                ${
+                  activeServerId === server.id
+                    ? "bg-accent text-white rounded-[12px]"
+                    : "bg-bg-tertiary text-text-secondary hover:bg-accent hover:text-white hover:rounded-[12px]"
+                }
+              `}
+            >
+              {server.initial}
+            </button>
+          </div>
         ))}
 
         {/* Divider */}
-        {servers.length > 0 && <div className="w-8 h-px bg-border my-1" />}
+        {servers.length > 0 && <div className="w-8 h-px bg-border/50 my-1" />}
 
         {/* Add server button */}
         <button
           onClick={() => setShowModal(true)}
           title="Add a server"
-          className="w-12 h-12 rounded-[18px] bg-bg-surface text-success hover:bg-success hover:text-white flex items-center justify-center transition-all duration-300 ease-out hover:rounded-[12px] hover:shadow-lg hover:shadow-success/20 cursor-pointer group"
+          className="w-12 h-12 rounded-[16px] bg-bg-tertiary text-success hover:bg-success hover:text-white flex items-center justify-center transition-all duration-200 ease-out hover:rounded-[12px] cursor-pointer group"
         >
           <Plus className="w-5 h-5" />
         </button>
