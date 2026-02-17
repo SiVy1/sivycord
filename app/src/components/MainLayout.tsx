@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChannelSidebar } from "./ChannelSidebar.tsx";
 import { ChatArea } from "./ChatArea.tsx";
 import { MemberListPanel } from "./MemberListPanel.tsx";
@@ -6,15 +6,21 @@ import { UserProfileModal } from "./modals/UserProfileModal.tsx";
 import { useStore } from "../store";
 import { type ChatEntry, getApiUrl } from "../types";
 import { useHotkey } from "../hooks/useHotkey.ts";
+import { CommandPallete } from "./CommandPallete.tsx";
 
 export function MainLayout() {
   const activeServerId = useStore((s) => s.activeServerId);
   const servers = useStore((s) => s.servers);
   const setCurrentUser = useStore((s) => s.setCurrentUser);
   const [showMembers, setShowMembers] = useState(true);
+  const [showCommandPalette, setShowCommandPalette] = useState(false);
 
   const activeServer = servers.find((s) => s.id === activeServerId);
-  useHotkey();
+  const hotkeyCallbacks = useMemo(() => ({
+    onCommandPalette: () => setShowCommandPalette((prev) => !prev),
+    onCloseModal: () => setShowCommandPalette(false),
+  }), []);
+  useHotkey(hotkeyCallbacks);
   const fetchNodeId = useStore((s) => s.fetchNodeId);
   const addMessage = useStore((s) => s.addMessage);
   // Initialize Iroh
@@ -138,6 +144,7 @@ export function MainLayout() {
       />
       <MemberListPanel visible={showMembers} />
       <UserProfileModal />
+      <CommandPallete visible={showCommandPalette} onClose={() => setShowCommandPalette(false)} />
     </div>
   );
 }

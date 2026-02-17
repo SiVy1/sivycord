@@ -6,30 +6,51 @@ import {
   toggleDeafen,
 } from "./voiceHelpers";
 
-const hotkeyFunctions = {
-  toggle_mute: () => {
-    toggleMute();
-    console.log("Mute toggled via hotkey");
-  },
-  toggle_deafen: () => {
-    toggleDeafen();
-    console.log("Deafen toggled via hotkey");
-  },
-  prev_channel: () => {
-    console.log("Previous channel action");
-  },
-  next_channel: () => {
-    console.log("Next channel action");
-  },
-  close_modal: () => {
-    console.log("Close modal action");
-  },
+
+type HotkeyCallbacks = {
+  onCommandPalette?: () => void;
+  onCloseModal?: () => void;
 };
 
-export function useHotkey() {
+function getHotkeyFunctions(callbacks: HotkeyCallbacks) {
+  return {
+    toggle_mute: () => {
+      toggleMute();
+      console.log("Mute toggled via hotkey");
+    },
+    toggle_deafen: () => {
+      toggleDeafen();
+      console.log("Deafen toggled via hotkey");
+    },
+    prev_channel: () => {
+      console.log("Previous channel action");
+    },
+    next_channel: () => {
+      console.log("Next channel action");
+    },
+    close_modal: () => {
+      if (callbacks.onCloseModal) {
+        callbacks.onCloseModal();
+      } else {
+        console.log("Close modal action");
+      }
+    },
+    command_palette: () => {
+      if (callbacks.onCommandPalette) {
+        callbacks.onCommandPalette();
+      } else {
+        console.log("Toggle command palette");
+      }
+    },
+  };
+}
+
+
+export function useHotkey(callbacks: HotkeyCallbacks = {}) {
   const { pttKey, mode } = useStore((s) => s.voiceSettings);
   const shortcuts = useStore((s) => s.shortcuts);
   const isPttMode = mode === "ptt";
+  const hotkeyFunctions = React.useMemo(() => getHotkeyFunctions(callbacks), [callbacks]);
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -69,6 +90,7 @@ export function useHotkey() {
           event.metaKey === metaReq
         ) {
           event.preventDefault();
+          event.stopPropagation(); // Stop bubbling
           console.log(`Hotkey triggered: ${action}`);
           if (action in hotkeyFunctions) {
             const actionFunction =
@@ -77,7 +99,7 @@ export function useHotkey() {
           } else {
             console.warn(`No function defined for action: ${action}`);
           }
-          break;
+          return; // Stop checking other shortcuts
         }
       }
     }
@@ -111,5 +133,5 @@ export function useHotkey() {
       window.removeEventListener("mousedown", handleMouseDown);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [shortcuts, pttKey, isPttMode]);
+  }, [shortcuts, pttKey, isPttMode, hotkeyFunctions]);
 }

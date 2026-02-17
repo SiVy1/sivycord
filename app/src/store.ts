@@ -21,6 +21,7 @@ export const DEFAULT_SHORTCUTS: ShortcutMap = {
   prev_channel: "Alt+ArrowUp",
   next_channel: "Alt+ArrowDown",
   close_modal: "Escape",
+  command_palette: "Control+P",
 };
 
 interface AppState {
@@ -553,13 +554,13 @@ export const useStore = create<AppState>()(
             servers: s.servers.map((srv) =>
               srv.id === s.activeServerId
                 ? {
-                    ...srv,
-                    config: {
-                      ...srv.config,
-                      authToken: undefined,
-                      userId: undefined,
-                    },
-                  }
+                  ...srv,
+                  config: {
+                    ...srv.config,
+                    authToken: undefined,
+                    userId: undefined,
+                  },
+                }
                 : srv,
             ),
             currentUser: null,
