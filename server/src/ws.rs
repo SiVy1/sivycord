@@ -592,6 +592,9 @@ async fn handle_socket(
                         });
                     }
 
+                    Ok(WsClientMessage::Ping) => {
+                        let _ = client_tx.send(WsServerMessage::Pong).await;
+                    }
                     Err(_) => {
                         let _ = client_tx
                             .send(WsServerMessage::Error {

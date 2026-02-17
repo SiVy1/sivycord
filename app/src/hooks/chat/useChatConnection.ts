@@ -8,6 +8,7 @@ import {
 
 const WS_RECONNECT_DELAY = 2000;
 const WS_MAX_RETRIES = 10;
+const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 
 interface UseChatConnectionProps {
   activeServerId: string | null;
@@ -31,6 +32,7 @@ export function useChatConnection({
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const prevChannelRef = useRef<string | null>(null);
 
   // WebSocket connection with auto-reconnect
@@ -44,6 +46,12 @@ export function useChatConnection({
     if (wsRef.current) {
       wsRef.current.onclose = null;
       wsRef.current.close();
+    }
+
+    // Clear existing heartbeat
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
     }
 
     if (!host || !port) return;
@@ -62,6 +70,13 @@ export function useChatConnection({
       setWsStatus("connected");
       retriesRef.current = 0;
 
+      // Start heartbeat
+      heartbeatTimerRef.current = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "ping" }));
+        }
+      }, HEARTBEAT_INTERVAL);
+
       if (activeChannelId) {
         const msg: WsClientMessage = {
           type: "join_channel",
@@ -75,17 +90,24 @@ export function useChatConnection({
     ws.onmessage = (event) => {
       try {
         const data: WsServerMessage = JSON.parse(event.data);
+        if (data.type === "pong" || (data as any).type === "ping_response") return;
+
         onMessage(data);
       } catch (err) {
         console.error("Failed to parse WS message:", err);
       }
     };
 
-    ws.onerror = () => {};
+    ws.onerror = () => { };
 
     ws.onclose = () => {
       wsRef.current = null;
       setWsStatus("disconnected");
+
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
+      }
 
       if (retriesRef.current < WS_MAX_RETRIES) {
         retriesRef.current++;
@@ -99,6 +121,7 @@ export function useChatConnection({
     connectWs();
     return () => {
       if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.close();

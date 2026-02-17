@@ -406,6 +406,8 @@ pub enum WsClientMessage {
         is_muted: bool,
         is_deafened: bool,
     },
+    #[serde(rename = "ping")]
+    Ping,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -413,6 +415,8 @@ pub enum WsClientMessage {
 pub enum WsServerMessage {
     #[serde(rename = "identity")]
     Identity { user_id: String },
+    #[serde(rename = "pong")]
+    Pong,
     #[serde(rename = "new_message")]
     NewMessage {
         id: String,
