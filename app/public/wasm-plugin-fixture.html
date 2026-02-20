@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SivySpeak Wasm Plugin</title>
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background-color: #1e1e2e;
+        color: #cdd6f4;
+        margin: 0;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        box-sizing: border-box;
+      }
+      .card {
+        background-color: #181825;
+        padding: 2rem;
+        border-radius: 1rem;
+        border: 2px solid #89b4fa;
+        text-align: center;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      }
+      button {
+        background-color: #cba6f7;
+        color: #11111b;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        font-size: 1rem;
+        font-weight: bold;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        margin-top: 1.5rem;
+        transition:
+          transform 0.1s,
+          background-color 0.2s;
+      }
+      button:hover {
+        background-color: #b4befe;
+        transform: scale(1.05);
+      }
+      button:active {
+        transform: scale(0.95);
+      }
+      #status {
+        margin-top: 1rem;
+        font-size: 0.875rem;
+        color: #a6adc8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h2>🛠️ SivySpeak Wasm Plugin</h2>
+      <p>Hello from the isolated Iframe Sandbox!</p>
+      <p>This UI is completely independent of the SivySpeak React app.</p>
+      <button id="actionBtn">Send P2P Data to SivySpeak</button>
+      <div id="status">Waiting for actions...</div>
+    </div>
+
+    <script>
+      const btn = document.getElementById("actionBtn");
+      const statusEl = document.getElementById("status");
+      let counter = 0;
+
+      // Listen for messages from SivySpeak Host
+      window.addEventListener("message", (event) => {
+        // In a real app we'd check origin
+        if (event.data?.type === "SIVYSPEAK_ACK") {
+          statusEl.innerText = `Host Acknowledged our message! (Count: ${counter})`;
+        }
+      });
+
+      // Send message to the SivySpeak Host
+      btn.addEventListener("click", () => {
+        counter++;
+        const payload = {
+          type: "PLUGIN_ACTION",
+          action: "broadcast_p2p",
+          data: {
+            x: Math.random() * 100,
+            y: Math.random() * 100,
+            message: "Player moved",
+          },
+        };
+
+        // Post to parent window
+        window.parent.postMessage(payload, "*");
+        statusEl.innerText = `Sent payload to host...`;
+      });
+    </script>
+  </body>
+</html>

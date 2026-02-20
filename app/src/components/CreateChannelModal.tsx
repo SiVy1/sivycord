@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { ServerEntry, Category } from "../types";
 import { getApiUrl } from "../types";
-import { Mic, FolderTree } from "lucide-react";
+import { Mic, FolderTree, Puzzle } from "lucide-react";
+import { PluginStoreModal, type StorePlugin } from "./PluginStoreModal";
 
 export function CreateChannelModal({
   server,
@@ -14,13 +15,17 @@ export function CreateChannelModal({
 }) {
   const baseUrl = getApiUrl(server.config.host, server.config.port);
   const [name, setName] = useState("");
-  const [type, setType] = useState<"text" | "voice">("text");
+  const [type, setType] = useState<"text" | "voice" | "plugin">("text");
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | "none">(
     "none",
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showStore, setShowStore] = useState(false);
+  const [selectedPlugin, setSelectedPlugin] = useState<StorePlugin | null>(
+    null,
+  );
 
   const guildId = server.config.guildId || "default";
 
@@ -67,6 +72,7 @@ export function CreateChannelModal({
           channel_type: type,
           category_id:
             selectedCategoryId === "none" ? null : selectedCategoryId,
+          plugin_url: selectedPlugin?.bundle_url || null,
         }),
       });
 
@@ -117,7 +123,60 @@ export function CreateChannelModal({
             <Mic className="w-3.5 h-3.5" />
             Voice
           </button>
+
+          {/* Plugin Button */}
+          <button
+            onClick={() => {
+              setType("plugin");
+              if (!selectedPlugin) setShowStore(true);
+            }}
+            className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+              type === "plugin"
+                ? "bg-bg-hover text-purple-400"
+                : "text-text-muted hover:text-purple-400/70"
+            }`}
+          >
+            <Puzzle className="w-3.5 h-3.5" />
+            Plugin
+          </button>
         </div>
+
+        {/* Selected Plugin display */}
+        {type === "plugin" && (
+          <div className="mb-4">
+            {selectedPlugin ? (
+              <div className="flex items-center justify-between p-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <div className="w-6 h-6 rounded bg-bg-tertiary flex items-center justify-center shrink-0">
+                    <Puzzle className="w-3.5 h-3.5 text-purple-400" />
+                  </div>
+                  <div className="truncate">
+                    <p className="text-xs font-bold text-text-primary truncate">
+                      {selectedPlugin.name}
+                    </p>
+                    <p className="text-[10px] text-text-muted truncate">
+                      v{selectedPlugin.version}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowStore(true)}
+                  className="px-2 py-1 bg-bg-surface hover:bg-bg-hover rounded-md text-[10px] font-bold text-purple-400 transition-colors"
+                >
+                  Change
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowStore(true)}
+                className="w-full flex items-center justify-center gap-2 p-3 border border-dashed border-purple-500/50 hover:bg-purple-500/5 rounded-xl text-purple-400 text-sm font-medium transition-colors"
+              >
+                <Puzzle className="w-4 h-4" />
+                Browse Plugin Store
+              </button>
+            )}
+          </div>
+        )}
 
         <input
           type="text"
@@ -174,6 +233,24 @@ export function CreateChannelModal({
           </button>
         </div>
       </div>
+
+      {showStore && (
+        <PluginStoreModal
+          onClose={() => {
+            setShowStore(false);
+            if (!selectedPlugin) {
+              setType("text"); // Revert if cancelled without picking
+            }
+          }}
+          onSelectPlugin={(plugin) => {
+            setSelectedPlugin(plugin);
+            if (!name) {
+              setName(plugin.name.toLowerCase().replace(/\s+/g, "-"));
+            }
+            setShowStore(false);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tic Tac Toe Plugin</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 20px;
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+        background-color: #1a1a1a;
+        color: #ffffff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: repeat(3, 100px);
+        grid-gap: 10px;
+        background-color: #333;
+        padding: 10px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+      }
+
+      .cell {
+        width: 100px;
+        height: 100px;
+        background-color: #242424;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 48px;
+        font-weight: bold;
+        cursor: pointer;
+        border-radius: 5px;
+        transition: background-color 0.2s;
+        color: #a855f7; /* SivySpeak Purple */
+      }
+
+      .cell:hover {
+        background-color: #2a2a2a;
+      }
+
+      .cell.o {
+        color: #4ade80; /* Green */
+      }
+
+      .status {
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 20px;
+      }
+
+      button {
+        padding: 10px 20px;
+        background-color: #a855f7;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        font-size: 16px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: background-color 0.2s;
+      }
+
+      button:hover {
+        background-color: #9333ea;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="status" id="status">Player X's Turn</div>
+
+    <div class="board" id="board">
+      <div class="cell" data-index="0"></div>
+      <div class="cell" data-index="1"></div>
+      <div class="cell" data-index="2"></div>
+      <div class="cell" data-index="3"></div>
+      <div class="cell" data-index="4"></div>
+      <div class="cell" data-index="5"></div>
+      <div class="cell" data-index="6"></div>
+      <div class="cell" data-index="7"></div>
+      <div class="cell" data-index="8"></div>
+    </div>
+
+    <button onclick="resetGame()">Reset Game</button>
+
+    <script>
+      const board = document.getElementById("board");
+      const cells = document.querySelectorAll(".cell");
+      const statusText = document.getElementById("status");
+      let currentPlayer = "X";
+      let gameState = ["", "", "", "", "", "", "", "", ""];
+      let gameActive = true;
+
+      const winningConditions = [
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8], // Rows
+        [0, 3, 6],
+        [1, 4, 7],
+        [2, 5, 8], // Columns
+        [0, 4, 8],
+        [2, 4, 6], // Diagonals
+      ];
+
+      function handleCellClick(e) {
+        const cell = e.target;
+        const index = parseInt(cell.getAttribute("data-index"));
+
+        // Check if cell is filled or game is over
+        if (gameState[index] !== "" || !gameActive) return;
+
+        // Make move
+        gameState[index] = currentPlayer;
+        cell.innerText = currentPlayer;
+        if (currentPlayer === "O") cell.classList.add("o");
+
+        // Broadcast move to SivySpeak Host via postMessage
+        // In a real P2P scenario, SivySpeak would relay this to other players
+        window.parent.postMessage(
+          {
+            plugin_id: "community-tictactoe",
+            type: "MOVE",
+            payload: { index, player: currentPlayer },
+          },
+          "*",
+        );
+
+        checkWin();
+      }
+
+      function checkWin() {
+        let roundWon = false;
+        for (let i = 0; i < winningConditions.length; i++) {
+          const [a, b, c] = winningConditions[i];
+          if (
+            gameState[a] &&
+            gameState[a] === gameState[b] &&
+            gameState[a] === gameState[c]
+          ) {
+            roundWon = true;
+            break;
+          }
+        }
+
+        if (roundWon) {
+          statusText.innerText = `Player ${currentPlayer} Wins!`;
+          gameActive = false;
+
+          window.parent.postMessage(
+            {
+              plugin_id: "community-tictactoe",
+              type: "GAME_OVER",
+              payload: { winner: currentPlayer },
+            },
+            "*",
+          );
+          return;
+        }
+
+        if (!gameState.includes("")) {
+          statusText.innerText = "Game ENDED in a Draw!";
+          gameActive = false;
+          return;
+        }
+
+        // Switch turns
+        currentPlayer = currentPlayer === "X" ? "O" : "X";
+        statusText.innerText = `Player ${currentPlayer}'s Turn`;
+      }
+
+      function resetGame() {
+        currentPlayer = "X";
+        gameState = ["", "", "", "", "", "", "", "", ""];
+        gameActive = true;
+        statusText.innerText = `Player X's Turn`;
+        cells.forEach((cell) => {
+          cell.innerText = "";
+          cell.classList.remove("o");
+        });
+
+        window.parent.postMessage(
+          {
+            plugin_id: "community-tictactoe",
+            type: "RESET",
+            payload: {},
+          },
+          "*",
+        );
+      }
+
+      cells.forEach((cell) => cell.addEventListener("click", handleCellClick));
+
+      // Listen for incoming P2P moves from SivySpeak Host
+      window.addEventListener("message", (event) => {
+        // Very basic validation
+        if (!event.data || event.data.type !== "P2P_SYNC") return;
+
+        const { action, payload } = event.data;
+
+        if (action === "REMOTE_MOVE") {
+          const { index, player } = payload;
+          if (gameState[index] === "") {
+            gameState[index] = player;
+            const cell = document.querySelector(`[data-index="${index}"]`);
+            cell.innerText = player;
+            if (player === "O") cell.classList.add("o");
+            currentPlayer = player === "X" ? "O" : "X";
+            statusText.innerText = `Player ${currentPlayer}'s Turn`;
+            checkWin(); // Re-evaluate local state
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

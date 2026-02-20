@@ -44,6 +44,7 @@ pub async fn list_channels(
                 encrypted: ch.encrypted,
                 server_id: ch.server_id,
                 category_id: ch.category_id,
+                plugin_url: ch.plugin_url,
             });
         }
     }
@@ -85,7 +86,7 @@ pub async fn create_channel(
 
     // Validate channel_type
     let channel_type = req.channel_type.trim().to_string();
-    if channel_type != "text" && channel_type != "voice" {
+    if channel_type != "text" && channel_type != "voice" && channel_type != "plugin" {
         return Err((StatusCode::BAD_REQUEST, "Invalid channel type".into()));
     }
 
@@ -145,6 +146,7 @@ pub async fn create_channel(
         encrypted: Set(false),
         server_id: Set(server_id.clone()),
         category_id: Set(category_id.clone()),
+        plugin_url: Set(req.plugin_url.clone()),
     };
 
     channel::Entity::insert(new_channel)
@@ -165,6 +167,7 @@ pub async fn create_channel(
         encrypted: false,
         server_id,
         category_id: category_id.clone(),
+        plugin_url: req.plugin_url,
     };
 
     Ok((StatusCode::CREATED, Json(ch)))

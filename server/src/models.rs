@@ -229,6 +229,8 @@ pub struct CreateChannelRequest {
     #[serde(default = "default_channel_type")]
     pub channel_type: String,
     pub category_id: Option<String>,
+    #[serde(default)]
+    pub plugin_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

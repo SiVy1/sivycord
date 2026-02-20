@@ -6,8 +6,9 @@ export interface Channel {
   description: string;
   position: number;
   createdAt: string;
-  channel_type: "text" | "voice";
+  channel_type: "text" | "voice" | "plugin";
   category_id?: string | null;
+  plugin_url?: string | null;
   encrypted?: boolean;
 }
 

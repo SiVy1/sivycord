@@ -254,10 +254,10 @@ export function ChannelSettingsModal({
                     .map((o) => {
                       const role = roles.find((r) => r.id === o.target_id);
                       return (
-                        <button
+                        <div
                           key={o.target_id}
                           onClick={() => setSelectedTargetId(o.target_id)}
-                          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left group ${selectedTargetId === o.target_id ? "bg-bg-tertiary text-text-primary font-medium" : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"}`}
+                          className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm transition-colors text-left cursor-pointer group ${selectedTargetId === o.target_id ? "bg-bg-tertiary text-text-primary font-medium" : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"}`}
                         >
                           <div className="flex items-center gap-2 truncate">
                             {o.target_type === "role" ? (
@@ -281,7 +281,7 @@ export function ChannelSettingsModal({
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        </button>
+                        </div>
                       );
                     })}
                 </div>

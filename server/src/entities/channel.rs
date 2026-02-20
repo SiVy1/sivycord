@@ -20,6 +20,8 @@ pub struct Model {
     pub server_id: String,
     #[serde(default)]
     pub category_id: Option<String>,
+    #[serde(default)]
+    pub plugin_url: Option<String>,
 }
 
 fn default_channel_type() -> String {
