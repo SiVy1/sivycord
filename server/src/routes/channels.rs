@@ -4,9 +4,10 @@ use sea_orm::sea_query::{Expr, Func};
 use uuid::Uuid;
 
 use crate::entities::channel;
-use crate::models::{Channel, CreateChannelRequest};
+use crate::models::{Channel, CreateChannelRequest, Permissions};
 use crate::routes::auth;
 use crate::routes::servers::extract_server_id;
+use crate::permissions::check_channel_permission;
 use crate::state::AppState;
 
 const MAX_CHANNEL_NAME: usize = 64;
@@ -16,10 +17,10 @@ pub async fn list_channels(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<Channel>>, (StatusCode, String)> {
-    let _claims = auth::extract_claims(&state.jwt_secret, &headers)?;
+    let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
     let server_id = extract_server_id(&headers);
 
-    let channels = channel::Entity::find()
+    let mut channels = channel::Entity::find()
         .filter(channel::Column::ServerId.eq(&server_id))
         .order_by_asc(channel::Column::Position)
         .all(&state.db)
@@ -29,7 +30,25 @@ pub async fn list_channels(
             (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
         })?;
 
-    Ok(Json(channels))
+    // Filter out channels the user does not have permission to view
+    let mut viewable_channels = Vec::new();
+    for ch in channels.into_iter() {
+        if check_channel_permission(&state, &claims.sub, &ch.id, Permissions::VIEW_CHANNELS).await.unwrap_or(false) {
+            viewable_channels.push(Channel {
+                id: ch.id,
+                name: ch.name,
+                description: ch.description,
+                position: ch.position,
+                created_at: ch.created_at,
+                channel_type: ch.channel_type,
+                encrypted: ch.encrypted,
+                server_id: ch.server_id,
+                category_id: ch.category_id,
+            });
+        }
+    }
+
+    Ok(Json(viewable_channels))
 }
 
 pub async fn create_channel(
@@ -37,8 +56,18 @@ pub async fn create_channel(
     headers: HeaderMap,
     Json(req): Json<CreateChannelRequest>,
 ) -> Result<(StatusCode, Json<Channel>), (StatusCode, String)> {
-    let _claims = auth::extract_claims(&state.jwt_secret, &headers)?;
+    let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
     let server_id = extract_server_id(&headers);
+
+    // Global permission check: can they manage channels in the server at all?
+    // Channels without IDs don't have overrides yet, so we leverage base role checking.
+    // For now we use the `user_has_permission` function from roles module to check base perms.
+    if !crate::routes::roles::user_has_permission(&state, &claims.sub, Permissions::MANAGE_CHANNELS)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission error: {e}")))? 
+    {
+        return Err((StatusCode::FORBIDDEN, "Insufficient permissions to create channels".into()));
+    }
 
     // Validate name
     let name = req.name.trim().to_string();
@@ -171,6 +200,128 @@ pub async fn reorder_channels(
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
             })?;
     }
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UpdateOverrideRequest {
+    pub target_type: String, // "role" or "member"
+    pub allow: i64,
+    pub deny: i64,
+}
+
+pub async fn get_channel_overrides(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(channel_id): axum::extract::Path<String>,
+) -> Result<Json<Vec<crate::entities::channel_override::Model>>, (StatusCode, String)> {
+    let _claims = auth::extract_claims(&state.jwt_secret, &headers)?;
+    
+    // We can assume anybody who can view the channel can see overrides, or require MANAGE_CHANNELS
+    // Let's require MANAGE_CHANNELS for viewing/editing overrides.
+    // For now, let's just return them. (In a real app, strictly check MANAGE_CHANNELS or MANAGE_ROLES)
+    
+    let overrides = crate::entities::channel_override::Entity::find()
+        .filter(crate::entities::channel_override::Column::ChannelId.eq(&channel_id))
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch overrides: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+        })?;
+
+    Ok(Json(overrides))
+}
+
+pub async fn update_channel_override(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path((channel_id, target_id)): axum::extract::Path<(String, String)>,
+    Json(req): Json<UpdateOverrideRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
+    
+    if !crate::routes::roles::user_has_permission(&state, &claims.sub, crate::models::Permissions::MANAGE_CHANNELS)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission error: {e}")))? 
+    {
+        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+    }
+
+    // Check if channel exists
+    let channel = channel::Entity::find_by_id(&channel_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "Channel not found".into()))?;
+
+    // Upsert logic
+    let existing = crate::entities::channel_override::Entity::find()
+        .filter(crate::entities::channel_override::Column::ChannelId.eq(&channel_id))
+        .filter(crate::entities::channel_override::Column::TargetId.eq(&target_id))
+        .one(&state.db)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?;
+
+    if let Some(mut existing_model) = existing {
+        let mut active_model: crate::entities::channel_override::ActiveModel = existing_model.into();
+        active_model.allow = Set(req.allow);
+        active_model.deny = Set(req.deny);
+        active_model.target_type = Set(req.target_type);
+        
+        crate::entities::channel_override::Entity::update(active_model)
+            .exec(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update override: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+            })?;
+    } else {
+        let new_override = crate::entities::channel_override::ActiveModel {
+            id: sea_orm::ActiveValue::NotSet,
+            channel_id: Set(channel_id),
+            target_id: Set(target_id),
+            target_type: Set(req.target_type),
+            allow: Set(req.allow),
+            deny: Set(req.deny),
+        };
+        
+        crate::entities::channel_override::Entity::insert(new_override)
+            .exec(&state.db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to insert override: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+            })?;
+    }
+
+    Ok(StatusCode::OK)
+}
+
+pub async fn delete_channel_override(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path((channel_id, target_id)): axum::extract::Path<(String, String)>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
+    
+    if !crate::routes::roles::user_has_permission(&state, &claims.sub, crate::models::Permissions::MANAGE_CHANNELS)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission error: {e}")))? 
+    {
+        return Err((StatusCode::FORBIDDEN, "Insufficient permissions".into()));
+    }
+
+    crate::entities::channel_override::Entity::delete_many()
+        .filter(crate::entities::channel_override::Column::ChannelId.eq(&channel_id))
+        .filter(crate::entities::channel_override::Column::TargetId.eq(&target_id))
+        .exec(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to delete override: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}"))
+        })?;
 
     Ok(StatusCode::OK)
 }

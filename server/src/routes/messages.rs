@@ -11,7 +11,8 @@ use crate::models::{
     Message, MessageEdit, MessageWithReply, MessagesQuery, Permissions, ReactionGroup,
     RepliedMessage, WsServerMessage,
 };
-use crate::routes::{auth, roles::user_has_permission};
+use crate::routes::auth;
+use crate::permissions::check_channel_permission;
 use crate::state::AppState;
 
 pub async fn get_messages(
@@ -20,8 +21,16 @@ pub async fn get_messages(
     Path(channel_id): Path<String>,
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<Vec<MessageWithReply>>, (StatusCode, String)> {
-    let _claims = auth::extract_claims(&state.jwt_secret, &headers)?;
+    let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
     let limit = query.limit.unwrap_or(50).min(100) as u64;
+
+    // Check if user has VIEW_CHANNELS permission in this channel
+    if !check_channel_permission(&state, &claims.sub, &channel_id, Permissions::VIEW_CHANNELS)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission error: {e}")))? 
+    {
+        return Err((StatusCode::FORBIDDEN, "You do not have permission to view this channel".into()));
+    }
 
     let mut q = message::Entity::find()
         .filter(message::Column::ChannelId.eq(&channel_id))
@@ -178,15 +187,15 @@ pub async fn delete_message(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB error: {e}")))?
         .ok_or((StatusCode::NOT_FOUND, "Message not found".to_string()))?;
 
-    let has_permission = user_has_permission(&state, &claims.sub, Permissions::MANAGE_MESSAGES)
+    let channel_id = message.channel_id.clone();
+
+    let has_permission = check_channel_permission(&state, &claims.sub, &channel_id, Permissions::MANAGE_MESSAGES)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))?;
 
     if message.user_id != claims.sub && !has_permission {
         return Err((StatusCode::FORBIDDEN, "Not authorized to delete this message".to_string()));
     }
-
-    let channel_id = message.channel_id.clone();
 
     let mut active_message: message::ActiveModel = message.into();
     active_message.deleted_at = Set(Some(chrono::Utc::now()));
@@ -215,14 +224,6 @@ pub async fn pin_message(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let has_permission = user_has_permission(&state, &claims.sub, Permissions::MANAGE_MESSAGES)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))?;
-
-    if !has_permission {
-        return Err((StatusCode::FORBIDDEN, "Missing MANAGE_MESSAGES permission".to_string()));
-    }
-
     let msg = message::Entity::find_by_id(&message_id)
         .one(&state.db)
         .await
@@ -230,6 +231,14 @@ pub async fn pin_message(
         .ok_or((StatusCode::NOT_FOUND, "Message not found".to_string()))?;
 
     let channel_id = msg.channel_id.clone();
+
+    let has_permission = check_channel_permission(&state, &claims.sub, &channel_id, Permissions::MANAGE_MESSAGES)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))?;
+
+    if !has_permission {
+        return Err((StatusCode::FORBIDDEN, "Missing MANAGE_MESSAGES permission".to_string()));
+    }
     let pinned_at = chrono::Utc::now().to_rfc3339();
     let pinned_by = claims.sub.clone();
 
@@ -263,14 +272,6 @@ pub async fn unpin_message(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let claims = auth::extract_claims(&state.jwt_secret, &headers)?;
 
-    let has_permission = user_has_permission(&state, &claims.sub, Permissions::MANAGE_MESSAGES)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))?;
-
-    if !has_permission {
-        return Err((StatusCode::FORBIDDEN, "Missing MANAGE_MESSAGES permission".to_string()));
-    }
-
     let msg = message::Entity::find_by_id(&message_id)
         .one(&state.db)
         .await
@@ -278,6 +279,14 @@ pub async fn unpin_message(
         .ok_or((StatusCode::NOT_FOUND, "Message not found".to_string()))?;
 
     let channel_id = msg.channel_id.clone();
+    
+    let has_permission = check_channel_permission(&state, &claims.sub, &channel_id, Permissions::MANAGE_MESSAGES)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Permission check error: {e}")))?;
+
+    if !has_permission {
+        return Err((StatusCode::FORBIDDEN, "Missing MANAGE_MESSAGES permission".to_string()));
+    }
 
     let mut active: message::ActiveModel = msg.into();
     active.pinned_at = Set(None);

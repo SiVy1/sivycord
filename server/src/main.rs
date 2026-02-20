@@ -1,6 +1,7 @@
 mod db;
 mod entities;
 mod models;
+mod permissions;
 mod routes;
 mod state;
 mod token;
@@ -206,10 +207,11 @@ async fn main() {
         .route("/api/channels", get(routes::channels::list_channels))
         .route("/api/channels", post(routes::channels::create_channel))
         .route("/api/channels/reorder", put(routes::channels::reorder_channels))
-        .route(
-            "/api/channels/{channel_id}/messages",
-            get(routes::messages::get_messages),
-        )        .route("/api/invites", post(routes::invite::create_invite))
+        .route("/api/channels/{channel_id}/messages", get(routes::messages::get_messages))
+        .route("/api/channels/{channel_id}/overrides", get(routes::channels::get_channel_overrides))
+        .route("/api/channels/{channel_id}/overrides/{target_id}", put(routes::channels::update_channel_override))
+        .route("/api/channels/{channel_id}/overrides/{target_id}", delete(routes::channels::delete_channel_override))
+        .route("/api/invites", post(routes::invite::create_invite))
         .route("/api/join", post(routes::invite::join_server))
         .route("/api/join-direct", post(routes::invite::join_direct))
         .route("/api/server", get(routes::server_info::get_server_info))

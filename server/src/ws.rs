@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use uuid::Uuid;
 
-use crate::{entities::{bot, federated_channel, federation_peer, message, server, user}, routes::roles::user_has_permission};
+use crate::{entities::{bot, federated_channel, federation_peer, message, server, user}, permissions::check_channel_permission, routes::roles::user_has_permission};
 use crate::models::{Bot, RepliedMessage, WsClientMessage, WsServerMessage};
 use crate::routes::auth;
 use crate::state::AppState;
@@ -200,6 +200,15 @@ async fn handle_socket(
                         if channel_id.is_empty() {
                             continue;
                         }
+                        
+                        // Check channel permissions for SEND_MESSAGES
+                        if !check_channel_permission(&state, &user_id, &channel_id, Permissions::SEND_MESSAGES).await.unwrap_or(false) {
+                            let _ = client_tx.send(WsServerMessage::Error {
+                                message: "You do not have permission to send messages in this channel".to_string(),
+                            }).await;
+                            continue;
+                        }
+
                         //check if timeout has expired for user and remove from set if so
                         if state.is_user_timed_out(&user_id).await {
                             let _ = client_tx.send(WsServerMessage::Error {

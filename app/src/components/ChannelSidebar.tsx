@@ -32,6 +32,7 @@ import {
   FolderPlus,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import { ChannelSettingsModal } from "./ChannelSettingsModal";
 
 interface VoiceMember {
   user_id: string;
@@ -93,6 +94,7 @@ const ChannelItem = memo(function ChannelItem({
   onClick,
   isConnected,
   onVoiceClick,
+  onSettingsClick,
   voiceMembers,
   screenShares,
 }: {
@@ -101,6 +103,7 @@ const ChannelItem = memo(function ChannelItem({
   onClick: () => void;
   isConnected: boolean;
   onVoiceClick: () => void;
+  onSettingsClick: (e: React.MouseEvent) => void;
   voiceMembers: VoiceMember[];
   screenShares: Map<string, MediaStream>;
 }) {
@@ -127,7 +130,13 @@ const ChannelItem = memo(function ChannelItem({
                 : "text-text-muted/50 group-hover:text-text-muted"
             }`}
           />
-          <span className="truncate">{channel.name}</span>
+          <span className="truncate flex-1">{channel.name}</span>
+          <button
+            onClick={onSettingsClick}
+            className="hidden group-hover:flex p-1 hover:bg-bg-secondary rounded items-center justify-center shrink-0 text-text-muted hover:text-text-primary transition-colors"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         {voiceMembers.length > 0 && (
@@ -166,7 +175,13 @@ const ChannelItem = memo(function ChannelItem({
             : "text-text-muted/50 group-hover:text-text-muted"
         }`}
       />
-      <span className="truncate">{channel.name}</span>
+      <span className="truncate flex-1">{channel.name}</span>
+      <button
+        onClick={onSettingsClick}
+        className="hidden group-hover:flex p-1 hover:bg-bg-secondary rounded items-center justify-center shrink-0 text-text-muted hover:text-text-primary transition-colors"
+      >
+        <Settings className="w-3.5 h-3.5" />
+      </button>
     </div>
   );
 });
@@ -198,6 +213,9 @@ export function ChannelSidebar() {
   const [showInvite, setShowInvite] = useState(false);
   const [showServerDropdown, setShowServerDropdown] = useState(false);
   const [showAddServer, setShowAddServer] = useState(false);
+  const [settingsChannelId, setSettingsChannelId] = useState<string | null>(
+    null,
+  );
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -488,6 +506,14 @@ export function ChannelSidebar() {
           onCreated={fetchChannels}
         />
       )}
+      {settingsChannelId && activeServer && (
+        <ChannelSettingsModal
+          server={activeServer}
+          channelId={settingsChannelId}
+          onClose={() => setSettingsChannelId(null)}
+          onUpdate={fetchChannels}
+        />
+      )}
       {/* Server Header Dropdown */}
       <div ref={dropdownRef} className="relative">
         <div
@@ -655,6 +681,10 @@ export function ChannelSidebar() {
                           ? leaveVoice()
                           : joinVoice(channel.id)
                       }
+                      onSettingsClick={(e) => {
+                        e.stopPropagation();
+                        setSettingsChannelId(channel.id);
+                      }}
                       voiceMembers={voiceMembers.filter(
                         (m) => m.channel_id === channel.id,
                       )}
@@ -745,6 +775,10 @@ export function ChannelSidebar() {
                               ? leaveVoice()
                               : joinVoice(channel.id)
                           }
+                          onSettingsClick={(e) => {
+                            e.stopPropagation();
+                            setSettingsChannelId(channel.id);
+                          }}
                           voiceMembers={voiceMembers.filter(
                             (m) => m.channel_id === channel.id,
                           )}

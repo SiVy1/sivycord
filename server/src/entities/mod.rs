@@ -17,3 +17,4 @@ pub mod user_key;
 pub mod user_role;
 pub mod webhook;
 pub mod category;
+pub mod channel_override;
